@@ -66,29 +66,45 @@ services:
     build:
       context: ./simulators/mpesa-service
     container_name: mpesa-service
+    environment:
+      DATABASE_URL: postgres://muungano:muungano@postgres:5432/muungano
     ports:
       - "4101:4101"
+    depends_on:
+      - postgres
 
   bank-service:
     build:
       context: ./simulators/bank-service
     container_name: bank-service
+    environment:
+      DATABASE_URL: postgres://muungano:muungano@postgres:5432/muungano
     ports:
       - "4102:4102"
+    depends_on:
+      - postgres
 
   sacco-service:
     build:
       context: ./simulators/sacco-service
     container_name: sacco-service
+    environment:
+      DATABASE_URL: postgres://muungano:muungano@postgres:5432/muungano
     ports:
       - "4103:4103"
+    depends_on:
+      - postgres
 
   insurance-service:
     build:
       context: ./simulators/insurance-service
     container_name: insurance-service
+    environment:
+      DATABASE_URL: postgres://muungano:muungano@postgres:5432/muungano
     ports:
       - "4104:4104"
+    depends_on:
+      - postgres
 
 volumes:
   postgres_data:

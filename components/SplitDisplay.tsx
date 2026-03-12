@@ -1,4 +1,12 @@
 import type { SalarySplit } from "@/services/payrollService";
+import { Badge } from "@/components/ui/badge";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 
 type SplitDisplayProps = {
   splits: SalarySplit[];
@@ -16,25 +24,31 @@ export default function SplitDisplay({
   }
 
   return (
-    <section className="rounded-lg border border-foreground/20 p-5">
-      <h3 className="mb-3 text-lg font-semibold">Obligation Routing</h3>
-      <div className="mb-4 text-sm">
-        Total settled to Kenya: {currency} {total.toLocaleString()}
-      </div>
-      <ul className="grid gap-2">
-        {splits.map((split) => (
-          <li
-            key={split.key}
-            className="flex items-center justify-between rounded border border-foreground/15 px-3 py-2"
-          >
-            <span>{split.label}</span>
-            <span className="font-medium">
-              {split.percentage}% · {split.currency}{" "}
-              {split.amount.toLocaleString()}
-            </span>
-          </li>
-        ))}
-      </ul>
-    </section>
+    <Card className="border-border/70 bg-card/95">
+      <CardHeader>
+        <CardTitle>Obligation Routing</CardTitle>
+        <CardDescription>
+          Total settled to Kenya: {currency} {total.toLocaleString()}
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <ul className="grid gap-3">
+          {splits.map((split) => (
+            <li
+              key={split.key}
+              className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/70 bg-muted/40 px-4 py-3"
+            >
+              <span className="font-medium">{split.label}</span>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="secondary">{split.percentage}%</Badge>
+                <Badge variant="outline">
+                  {split.currency} {split.amount.toLocaleString()}
+                </Badge>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+    </Card>
   );
 }
