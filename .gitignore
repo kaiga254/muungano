@@ -39,3 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Simulation node modules
+/simulators/bank-service/node_modules
+/simulators/insurance-service/node_modules
+/simulators/mpesa-service/node_modules
+/simulators/sacco-service/node_modules
