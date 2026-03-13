@@ -103,7 +103,9 @@ export default function SignupPage() {
         <CardContent>
           <form onSubmit={handleSubmit} className="grid gap-5">
             <div className="grid gap-4 rounded-lg border border-border/60 bg-muted/30 p-4">
-              <p className="text-sm font-medium text-muted-foreground">Company details</p>
+              <p className="text-sm font-medium text-muted-foreground">
+                Company details
+              </p>
               <div className="grid gap-2">
                 <Label htmlFor="company-name">Company name</Label>
                 <Input
@@ -149,7 +151,9 @@ export default function SignupPage() {
             </div>
 
             <div className="grid gap-4 rounded-lg border border-border/60 bg-muted/30 p-4">
-              <p className="text-sm font-medium text-muted-foreground">Your HR admin account</p>
+              <p className="text-sm font-medium text-muted-foreground">
+                Your HR admin account
+              </p>
               <div className="grid gap-2">
                 <Label htmlFor="full-name">Full name</Label>
                 <Input
@@ -195,9 +199,7 @@ export default function SignupPage() {
               </div>
             </div>
 
-            {error ? (
-              <p className="text-sm text-destructive">{error}</p>
-            ) : null}
+            {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
             <Button type="submit" disabled={loading} className="w-full">
               {loading ? "Creating account…" : "Create account"}
@@ -205,7 +207,10 @@ export default function SignupPage() {
 
             <p className="text-center text-sm text-muted-foreground">
               Already have an account?{" "}
-              <Link href="/login" className="underline underline-offset-4 hover:text-foreground">
+              <Link
+                href="/login"
+                className="underline underline-offset-4 hover:text-foreground"
+              >
                 Sign in
               </Link>
             </p>

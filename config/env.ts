@@ -25,6 +25,11 @@ export const env = {
 	rafikiClientSecret: process.env.RAFIKI_CLIENT_SECRET,
 	databaseUrl: process.env.DATABASE_URL ?? "postgresql://neondb_owner:npg_zQmh0XWnx8YD@ep-dark-voice-abgzt26c-pooler.eu-west-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require",
 	redisUrl: process.env.REDIS_URL,
+	simulatorApiBasePath:
+		process.env.SIMULATOR_API_BASE_PATH ?? "/api/simulators",
+	publicSimulatorApiBasePath:
+		process.env.NEXT_PUBLIC_SIMULATOR_API_BASE_PATH ?? "/api/simulators",
+	// Legacy external simulator service URLs (fallback path)
 	mpesaServiceUrl: process.env.MPESA_SERVICE_URL ?? "http://localhost:4101",
 	bankServiceUrl: process.env.BANK_SERVICE_URL ?? "http://localhost:4102",
 	saccoServiceUrl: process.env.SACCO_SERVICE_URL ?? "http://localhost:4103",

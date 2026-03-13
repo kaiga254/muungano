@@ -63,22 +63,24 @@ export default function EmployeeForm({
   submitLabel = "Save employee",
   isLoading = false,
 }: EmployeeFormProps) {
-  const [employeeNumber, setEmployeeNumber] = useState(initial?.employeeNumber ?? "");
+  const [employeeNumber, setEmployeeNumber] = useState(
+    initial?.employeeNumber ?? "",
+  );
   const [fullName, setFullName] = useState(initial?.fullName ?? "");
   const [email, setEmail] = useState(initial?.email ?? "");
   const [phone, setPhone] = useState(initial?.phone ?? "");
   const [department, setDepartment] = useState(initial?.department ?? "");
   const [jobTitle, setJobTitle] = useState(initial?.jobTitle ?? "");
   const [employmentType, setEmploymentType] = useState(
-    initial?.employmentType ?? "full_time"
+    initial?.employmentType ?? "full_time",
   );
   const [country, setCountry] = useState(initial?.country ?? "KE");
   const [salaryAmount, setSalaryAmount] = useState(initial?.salaryAmount ?? 0);
   const [salaryCurrency, setSalaryCurrency] = useState(
-    initial?.salaryCurrency ?? "MWK"
+    initial?.salaryCurrency ?? "MWK",
   );
   const [destinationPointer, setDestinationPointer] = useState(
-    initial?.destinationPointer ?? ""
+    initial?.destinationPointer ?? "",
   );
   const [nationalId, setNationalId] = useState(initial?.nationalId ?? "");
   const [kraPin, setKraPin] = useState(initial?.kraPin ?? "");
@@ -87,7 +89,7 @@ export default function EmployeeForm({
   const [tpin, setTpin] = useState(initial?.tpin ?? "");
   const [startDate, setStartDate] = useState(initial?.startDate ?? "");
   const [splitRules, setSplitRules] = useState<SplitRule[]>(
-    initial?.splitRules ?? DEFAULT_SPLIT_RULES.map((r) => ({ ...r }))
+    initial?.splitRules ?? DEFAULT_SPLIT_RULES.map((r) => ({ ...r })),
   );
   const [splitError, setSplitError] = useState<string | null>(null);
 
@@ -95,7 +97,7 @@ export default function EmployeeForm({
 
   const updateSplitPercentage = (key: string, value: number) => {
     setSplitRules((prev) =>
-      prev.map((r) => (r.key === key ? { ...r, percentage: value } : r))
+      prev.map((r) => (r.key === key ? { ...r, percentage: value } : r)),
     );
     setSplitError(null);
   };
@@ -105,7 +107,7 @@ export default function EmployeeForm({
 
     if (Math.round(splitTotal * 100) !== 10000) {
       setSplitError(
-        `Split percentages must total 100%. Current: ${splitTotal.toFixed(2)}%`
+        `Split percentages must total 100%. Current: ${splitTotal.toFixed(2)}%`,
       );
       return;
     }

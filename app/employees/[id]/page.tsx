@@ -19,7 +19,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import EmployeeForm, { type EmployeeFormValues } from "@/components/EmployeeForm";
+import EmployeeForm, {
+  type EmployeeFormValues,
+} from "@/components/EmployeeForm";
 import type { Employee } from "@/services/employeeService";
 
 type PageProps = { params: Promise<{ id: string }> };
@@ -45,7 +47,10 @@ export default function EmployeeDetailPage({ params }: PageProps) {
         router.push("/login");
         return;
       }
-      const data = (await res.json()) as { employee?: Employee; error?: string };
+      const data = (await res.json()) as {
+        employee?: Employee;
+        error?: string;
+      };
       if (!res.ok) throw new Error(data.error ?? "Employee not found.");
       setEmployee(data.employee ?? null);
     } catch (err) {
@@ -68,19 +73,29 @@ export default function EmployeeDetailPage({ params }: PageProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(values),
       });
-      const data = (await res.json()) as { employee?: Employee; error?: string };
+      const data = (await res.json()) as {
+        employee?: Employee;
+        error?: string;
+      };
       if (!res.ok) throw new Error(data.error ?? "Failed to update employee.");
       setEmployee(data.employee ?? null);
       setEditing(false);
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Failed to update employee.");
+      setFormError(
+        err instanceof Error ? err.message : "Failed to update employee.",
+      );
     } finally {
       setSubmitting(false);
     }
   };
 
   const handleDeactivate = async () => {
-    if (!confirm("Deactivate this employee? They will no longer appear in payroll runs.")) return;
+    if (
+      !confirm(
+        "Deactivate this employee? They will no longer appear in payroll runs.",
+      )
+    )
+      return;
     setDeactivating(true);
     try {
       const res = await fetch(`/api/employees/${id}`, { method: "DELETE" });
@@ -138,18 +153,25 @@ export default function EmployeeDetailPage({ params }: PageProps) {
           </div>
           {employee.jobTitle || employee.department ? (
             <p className="text-muted-foreground text-sm">
-              {[employee.jobTitle, employee.department].filter(Boolean).join(" · ")}
+              {[employee.jobTitle, employee.department]
+                .filter(Boolean)
+                .join(" · ")}
             </p>
           ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
           <Link href="/employees">
-            <Button variant="ghost" size="sm">← Employees</Button>
+            <Button variant="ghost" size="sm">
+              ← Employees
+            </Button>
           </Link>
           <Button
             variant="outline"
             size="sm"
-            onClick={() => { setFormError(null); setEditing(true); }}
+            onClick={() => {
+              setFormError(null);
+              setEditing(true);
+            }}
           >
             Edit
           </Button>
@@ -189,9 +211,15 @@ export default function EmployeeDetailPage({ params }: PageProps) {
           </CardHeader>
           <CardContent>
             <dl className="grid grid-cols-2 gap-4">
-              {infoRow("Monthly salary", `${employee.salaryCurrency} ${employee.salaryAmount.toLocaleString()}`)}
+              {infoRow(
+                "Monthly salary",
+                `${employee.salaryCurrency} ${employee.salaryAmount.toLocaleString()}`,
+              )}
               {infoRow("Destination pointer", employee.destinationPointer)}
-              {infoRow("Employment type", employee.employmentType.replace("_", " "))}
+              {infoRow(
+                "Employment type",
+                employee.employmentType.replace("_", " "),
+              )}
             </dl>
           </CardContent>
         </Card>
@@ -199,7 +227,9 @@ export default function EmployeeDetailPage({ params }: PageProps) {
         <Card className="border-border/70">
           <CardHeader>
             <CardTitle className="text-base">Statutory identifiers</CardTitle>
-            <CardDescription>{employee.country === "KE" ? "Kenya" : "Malawi / multi-country"}</CardDescription>
+            <CardDescription>
+              {employee.country === "KE" ? "Kenya" : "Malawi / multi-country"}
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <dl className="grid grid-cols-2 gap-4">
@@ -215,7 +245,9 @@ export default function EmployeeDetailPage({ params }: PageProps) {
         <Card className="border-border/70">
           <CardHeader>
             <CardTitle className="text-base">Salary split rules</CardTitle>
-            <CardDescription>Applied on each payroll run for this employee.</CardDescription>
+            <CardDescription>
+              Applied on each payroll run for this employee.
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <ul className="grid gap-2">
@@ -238,7 +270,9 @@ export default function EmployeeDetailPage({ params }: PageProps) {
         <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit employee</DialogTitle>
-            <DialogDescription>Update {employee.fullName}&apos;s profile.</DialogDescription>
+            <DialogDescription>
+              Update {employee.fullName}&apos;s profile.
+            </DialogDescription>
           </DialogHeader>
           {formError ? (
             <p className="text-sm text-destructive">{formError}</p>

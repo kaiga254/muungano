@@ -87,7 +87,10 @@ function LoginForm() {
 
       <p className="text-center text-sm text-muted-foreground">
         Don&apos;t have an account?{" "}
-        <Link href="/signup" className="underline underline-offset-4 hover:text-foreground">
+        <Link
+          href="/signup"
+          className="underline underline-offset-4 hover:text-foreground"
+        >
           Create one
         </Link>
       </p>
@@ -104,7 +107,11 @@ export default function LoginPage() {
           <CardDescription>Enter your HR admin credentials.</CardDescription>
         </CardHeader>
         <CardContent>
-          <Suspense fallback={<div className="text-sm text-muted-foreground">Loading…</div>}>
+          <Suspense
+            fallback={
+              <div className="text-sm text-muted-foreground">Loading…</div>
+            }
+          >
             <LoginForm />
           </Suspense>
         </CardContent>

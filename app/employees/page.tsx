@@ -27,7 +27,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import EmployeeForm, { type EmployeeFormValues } from "@/components/EmployeeForm";
+import EmployeeForm, {
+  type EmployeeFormValues,
+} from "@/components/EmployeeForm";
 import type { Employee } from "@/services/employeeService";
 
 export default function EmployeesPage() {
@@ -48,11 +50,16 @@ export default function EmployeesPage() {
         router.push("/login");
         return;
       }
-      const data = (await res.json()) as { employees?: Employee[]; error?: string };
+      const data = (await res.json()) as {
+        employees?: Employee[];
+        error?: string;
+      };
       if (!res.ok) throw new Error(data.error ?? "Failed to load employees.");
       setEmployees(data.employees ?? []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load employees.");
+      setError(
+        err instanceof Error ? err.message : "Failed to load employees.",
+      );
     } finally {
       setLoading(false);
     }
@@ -71,12 +78,17 @@ export default function EmployeesPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(values),
       });
-      const data = (await res.json()) as { employee?: Employee; error?: string };
+      const data = (await res.json()) as {
+        employee?: Employee;
+        error?: string;
+      };
       if (!res.ok) throw new Error(data.error ?? "Failed to create employee.");
       setShowForm(false);
       await fetchEmployees();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Failed to create employee.");
+      setFormError(
+        err instanceof Error ? err.message : "Failed to create employee.",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -91,14 +103,21 @@ export default function EmployeesPage() {
             Onboard and manage your payroll workforce.
           </p>
         </div>
-        <Button onClick={() => { setFormError(null); setShowForm(true); }}>
+        <Button
+          onClick={() => {
+            setFormError(null);
+            setShowForm(true);
+          }}
+        >
           + Add employee
         </Button>
       </div>
 
       {error ? (
         <Card className="mb-4 border-destructive/40 bg-destructive/5">
-          <CardContent className="p-4 text-sm text-destructive">{error}</CardContent>
+          <CardContent className="p-4 text-sm text-destructive">
+            {error}
+          </CardContent>
         </Card>
       ) : null}
 
@@ -106,7 +125,9 @@ export default function EmployeesPage() {
         <CardHeader>
           <CardTitle>Team roster</CardTitle>
           <CardDescription>
-            {loading ? "Loading…" : `${employees.length} employee${employees.length !== 1 ? "s" : ""}`}
+            {loading
+              ? "Loading…"
+              : `${employees.length} employee${employees.length !== 1 ? "s" : ""}`}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -118,7 +139,10 @@ export default function EmployeesPage() {
               <Button
                 variant="outline"
                 className="mt-4"
-                onClick={() => { setFormError(null); setShowForm(true); }}
+                onClick={() => {
+                  setFormError(null);
+                  setShowForm(true);
+                }}
               >
                 Onboard your first employee
               </Button>
@@ -128,8 +152,12 @@ export default function EmployeesPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Name</TableHead>
-                  <TableHead className="hidden md:table-cell">Department</TableHead>
-                  <TableHead className="hidden sm:table-cell">Country</TableHead>
+                  <TableHead className="hidden md:table-cell">
+                    Department
+                  </TableHead>
+                  <TableHead className="hidden sm:table-cell">
+                    Country
+                  </TableHead>
                   <TableHead>Salary</TableHead>
                   <TableHead className="hidden md:table-cell">Type</TableHead>
                   <TableHead>Status</TableHead>
@@ -155,8 +183,7 @@ export default function EmployeesPage() {
                     </TableCell>
                     <TableCell>
                       <span className="font-medium">
-                        {emp.salaryCurrency}{" "}
-                        {emp.salaryAmount.toLocaleString()}
+                        {emp.salaryCurrency} {emp.salaryAmount.toLocaleString()}
                       </span>
                     </TableCell>
                     <TableCell className="hidden md:table-cell capitalize text-muted-foreground">

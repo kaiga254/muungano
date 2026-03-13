@@ -105,6 +105,9 @@ export async function POST(request: Request) {
 			employeeName,
 			currency: "KES",
 			splits,
+			companyId: session?.companyId,
+			employeeId,
+			createdBy: session?.userId,
 		});
 
 		const runRecord = {

@@ -22,6 +22,19 @@ type RunPayrollResponse = {
   details?: string;
 };
 
+async function parseJsonSafely<T>(response: Response): Promise<T | null> {
+  const text = await response.text();
+  if (!text) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return null;
+  }
+}
+
 export default function DashboardPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -39,8 +52,13 @@ export default function DashboardPage() {
         router.push("/login");
         return;
       }
-      const data = (await res.json()) as { employees?: Employee[] };
-      const active = (data.employees ?? []).filter((e) => e.isActive);
+
+      const data = await parseJsonSafely<{ employees?: Employee[] }>(res);
+      if (!res.ok) {
+        return;
+      }
+
+      const active = (data?.employees ?? []).filter((e) => e.isActive);
       setEmployees(active);
       if (active.length > 0) {
         setSelectedEmployeeId(active[0].id);
@@ -68,7 +86,13 @@ export default function DashboardPage() {
         body: JSON.stringify({ employeeId: selectedEmployeeId }),
       });
 
-      const payload = (await response.json()) as RunPayrollResponse;
+      const payload = await parseJsonSafely<RunPayrollResponse>(response);
+      if (!payload) {
+        throw new Error(
+          `Payroll API returned an empty or invalid response (${response.status})`,
+        );
+      }
+
       if (!response.ok || !payload.payrollRun) {
         throw new Error(
           payload.details || payload.error || "Payroll execution failed",
@@ -105,8 +129,9 @@ export default function DashboardPage() {
                     Payroll Dashboard
                   </h1>
                   <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-                    Select an employee and run cross-border payroll from Malawi (MWK) to Kenya
-                    (KES) through Rafiki, routing settled funds to downstream obligations.
+                    Select an employee and run cross-border payroll from Malawi
+                    (MWK) to Kenya (KES) through Rafiki, routing settled funds
+                    to downstream obligations.
                   </p>
                 </div>
               </div>
@@ -153,7 +178,8 @@ export default function DashboardPage() {
             <div>
               <h2 className="text-lg font-semibold">Run Payroll</h2>
               <p className="text-sm text-muted-foreground mt-1">
-                Select an onboarded employee to trigger cross-border settlement and obligation routing.
+                Select an onboarded employee to trigger cross-border settlement
+                and obligation routing.
               </p>
             </div>
 

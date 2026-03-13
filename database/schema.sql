@@ -124,6 +124,51 @@ CREATE INDEX IF NOT EXISTS idx_payroll_transactions_company_id
 CREATE INDEX IF NOT EXISTS idx_payroll_transactions_employee_id
 	ON payroll_transactions (employee_id, created_at DESC);
 
+-- ============================================================
+-- Simulator ledger (employee sub-accounts per rail)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS simulator_accounts (
+	id UUID PRIMARY KEY,
+	company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+	employee_id UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+	rail VARCHAR(16) NOT NULL CHECK (rail IN ('mpesa', 'bank', 'sacco', 'insurance')),
+	account_ref TEXT NOT NULL,
+	currency VARCHAR(8) NOT NULL DEFAULT 'KES',
+	current_balance NUMERIC(14, 2) NOT NULL DEFAULT 0,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+	UNIQUE (company_id, employee_id, rail, currency)
+);
+
+CREATE INDEX IF NOT EXISTS idx_simulator_accounts_rail
+	ON simulator_accounts (company_id, rail, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS simulator_transactions (
+	id UUID PRIMARY KEY,
+	company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+	account_id UUID NOT NULL REFERENCES simulator_accounts(id) ON DELETE CASCADE,
+	employee_id UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+	rail VARCHAR(16) NOT NULL CHECK (rail IN ('mpesa', 'bank', 'sacco', 'insurance')),
+	direction VARCHAR(8) NOT NULL CHECK (direction IN ('credit', 'debit')),
+	amount NUMERIC(14, 2) NOT NULL CHECK (amount > 0),
+	currency VARCHAR(8) NOT NULL,
+	reference TEXT NOT NULL,
+	narration TEXT,
+	balance_before NUMERIC(14, 2) NOT NULL,
+	balance_after NUMERIC(14, 2) NOT NULL,
+	metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+	created_by UUID REFERENCES users(id),
+	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+	UNIQUE (company_id, reference)
+);
+
+CREATE INDEX IF NOT EXISTS idx_simulator_transactions_account
+	ON simulator_transactions (account_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_simulator_transactions_employee
+	ON simulator_transactions (employee_id, created_at DESC);
+
 CREATE SCHEMA IF NOT EXISTS mpesa;
 
 CREATE TABLE IF NOT EXISTS mpesa.accounts (

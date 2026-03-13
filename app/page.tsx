@@ -43,13 +43,16 @@ export default function Home() {
             </div>
             <div className="grid gap-3 text-sm text-muted-foreground">
               <div className="rounded-lg border border-border/70 bg-background/80 p-4">
-                HR signs up, creates company workspace, and onboards employees with salary and split configuration.
+                HR signs up, creates company workspace, and onboards employees
+                with salary and split configuration.
               </div>
               <div className="rounded-lg border border-border/70 bg-background/80 p-4">
-                Payroll runs dispatch quotes and outgoing payments through Rafiki with real-time obligation routing.
+                Payroll runs dispatch quotes and outgoing payments through
+                Rafiki with real-time obligation routing.
               </div>
               <div className="rounded-lg border border-border/70 bg-background/80 p-4">
-                Persistent employee and payroll ledgers stored in Neon PostgreSQL.
+                Persistent employee and payroll ledgers stored in Neon
+                PostgreSQL.
               </div>
             </div>
           </div>
