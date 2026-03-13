@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { deleteSession } from "@/services/authService";
+import { deleteSession } from "@/src/auth/authService";
 import { env } from "@/config/env";
 
 export async function POST() {

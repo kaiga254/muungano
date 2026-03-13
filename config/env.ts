@@ -13,8 +13,12 @@ const asBoolean = (value: string | undefined, fallback: boolean): boolean => {
 
 export const env = {
 	appName: process.env.APP_NAME ?? "Muungano",
-	mwkToKesRate: asNumber(process.env.MWK_TO_KES_RATE, 0.013),
+	// FX rates (mock — replace with live feed in production)
+	kes_usd_rate: asNumber(process.env.KES_USD_RATE, 0.00775),  // 1 KES ≈ 0.00775 USD
+	mwk_usd_rate: asNumber(process.env.MWK_USD_RATE, 0.00058),  // 1 MWK ≈ 0.00058 USD
+	mwk_kes_rate: asNumber(process.env.MWK_KES_RATE, 0.013),    // 1 MWK ≈ 0.013 KES (legacy)
 	requestTimeoutMs: asNumber(process.env.REQUEST_TIMEOUT_MS, 8_000),
+	// Rafiki / ILP
 	rafikiMockMode: asBoolean(process.env.RAFIKI_MOCK_MODE, true),
 	rafikiSenderBaseUrl:
 		process.env.RAFIKI_SENDER_BASE_URL ?? "http://rafiki-node-malawi:3000",
@@ -25,16 +29,15 @@ export const env = {
 	rafikiClientSecret: process.env.RAFIKI_CLIENT_SECRET,
 	databaseUrl: process.env.DATABASE_URL ?? "postgresql://neondb_owner:npg_zQmh0XWnx8YD@ep-dark-voice-abgzt26c-pooler.eu-west-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require",
 	redisUrl: process.env.REDIS_URL,
+	// Simulator channel URLs (repurposed — deposit/withdrawal channels)
 	simulatorApiBasePath:
 		process.env.SIMULATOR_API_BASE_PATH ?? "/api/simulators",
 	publicSimulatorApiBasePath:
 		process.env.NEXT_PUBLIC_SIMULATOR_API_BASE_PATH ?? "/api/simulators",
-	// Legacy external simulator service URLs (fallback path)
-	mpesaServiceUrl: process.env.MPESA_SERVICE_URL ?? "http://localhost:4101",
-	bankServiceUrl: process.env.BANK_SERVICE_URL ?? "http://localhost:4102",
-	saccoServiceUrl: process.env.SACCO_SERVICE_URL ?? "http://localhost:4103",
-	insuranceServiceUrl:
-		process.env.INSURANCE_SERVICE_URL ?? "http://localhost:4104",
+	mpesaSimulatorUrl: process.env.MPESA_SERVICE_URL ?? "http://localhost:4101",
+	bankSimulatorUrl: process.env.BANK_SERVICE_URL ?? "http://localhost:4102",
+	// Quote TTL
+	quoteTtlSeconds: asNumber(process.env.QUOTE_TTL_SECONDS, 30),
 	// Auth
 	authSecret:
 		process.env.AUTH_SECRET ??

@@ -11,11 +11,13 @@ import { useRouter } from "next/navigation";
 
 export type AuthSession = {
   userId: string;
-  companyId: string;
   email: string;
+  phone: string;
   fullName: string;
-  role: string;
-  companyName: string;
+  country: string;
+  ilpAddress: string | null;
+  kycTier: number;
+  phoneVerified: boolean;
 };
 
 type AuthContextValue = {

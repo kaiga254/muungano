@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { resolveSession } from "@/src/auth/authService";
-import { sendPayment } from "@/src/payments/paymentService";
-import { SendPaymentSchema } from "@/src/shared/validators";
+import { createQuote } from "@/src/quotes/quoteService";
+import { CreateQuoteSchema } from "@/src/shared/validators";
 import { toHttpError } from "@/src/shared/errors";
 import { env } from "@/config/env";
 import { ZodError } from "zod";
+import type { Currency } from "@/src/shared/currency";
 
-/** POST /api/payments/send */
+/** POST /api/quotes — create a payment quote */
 export async function POST(request: Request) {
 	try {
 		const cookieStore = await cookies();
@@ -18,18 +19,16 @@ export async function POST(request: Request) {
 		if (!session) return NextResponse.json({ error: "Session expired." }, { status: 401 });
 
 		const body = await request.json();
-		const data = SendPaymentSchema.parse(body);
+		const data = CreateQuoteSchema.parse(body);
 
-		const payment = await sendPayment({
+		const quote = await createQuote({
 			userId: session.userId,
-			quoteId: data.quoteId,
-			pin: data.pin,
-			receiverIdentifier: data.receiverIdentifier,
-			receiverType: data.receiverType,
-			idempotencyKey: data.idempotencyKey,
+			sourceCurrency: data.sourceCurrency as Currency,
+			destinationCurrency: data.destinationCurrency as Currency,
+			sourceAmount: BigInt(data.sourceAmount),
 		});
 
-		return NextResponse.json({ message: "Payment sent.", payment }, { status: 201 });
+		return NextResponse.json({ quote }, { status: 201 });
 	} catch (error) {
 		if (error instanceof ZodError) {
 			return NextResponse.json(

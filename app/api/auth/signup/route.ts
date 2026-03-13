@@ -1,55 +1,26 @@
 import { NextResponse } from "next/server";
-import { signUp } from "@/services/authService";
-
-type SignUpBody = {
-	companyName: string;
-	companyCountry: string;
-	companyCurrency: string;
-	fullName: string;
-	email: string;
-	password: string;
-};
+import { register } from "@/src/auth/authService";
+import { RegisterSchema } from "@/src/shared/validators";
+import { toHttpError } from "@/src/shared/errors";
+import { ZodError } from "zod";
 
 export async function POST(request: Request) {
 	try {
-		const body = (await request.json()) as Partial<SignUpBody>;
-
-		if (
-			!body.companyName ||
-			!body.fullName ||
-			!body.email ||
-			!body.password
-		) {
-			return NextResponse.json(
-				{ error: "companyName, fullName, email, and password are required." },
-				{ status: 400 }
-			);
-		}
-
-		if (body.password.length < 8) {
-			return NextResponse.json(
-				{ error: "Password must be at least 8 characters." },
-				{ status: 400 }
-			);
-		}
-
-		const { user, company } = await signUp({
-			companyName: body.companyName,
-			companyCountry: body.companyCountry ?? "KE",
-			companyCurrency: body.companyCurrency ?? "KES",
-			fullName: body.fullName,
-			email: body.email,
-			password: body.password,
-		});
-
+		const body = await request.json();
+		const data = RegisterSchema.parse(body);
+		const user = await register(data);
 		return NextResponse.json(
-			{ message: "Account created successfully.", user, company },
+			{ message: "Account created successfully.", user },
 			{ status: 201 }
 		);
 	} catch (error) {
-		const message =
-			error instanceof Error ? error.message : "Failed to create account.";
-		const status = message.includes("already exists") ? 409 : 500;
+		if (error instanceof ZodError) {
+			return NextResponse.json(
+				{ error: error.issues[0]?.message ?? "Validation error." },
+				{ status: 400 }
+			);
+		}
+		const { message, status } = toHttpError(error);
 		return NextResponse.json({ error: message }, { status });
 	}
 }

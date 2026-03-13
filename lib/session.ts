@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { env } from "@/config/env";
-import { resolveSession, type SessionPayload } from "@/services/authService";
+import { resolveSession, type SessionPayload } from "@/src/auth/authService";
 
 export const getSessionFromCookies = async (): Promise<SessionPayload | null> => {
 	const cookieStore = await cookies();
@@ -8,6 +8,7 @@ export const getSessionFromCookies = async (): Promise<SessionPayload | null> =>
 	if (!token) {
 		return null;
 	}
-
 	return resolveSession(token);
 };
+
+export { type SessionPayload };

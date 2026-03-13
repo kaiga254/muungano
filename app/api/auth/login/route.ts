@@ -1,27 +1,17 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { logIn, purgeExpiredSessions } from "@/services/authService";
+import { logIn, purgeExpiredSessions } from "@/src/auth/authService";
+import { LoginSchema } from "@/src/shared/validators";
+import { toHttpError } from "@/src/shared/errors";
 import { env } from "@/config/env";
-
-type LoginBody = {
-	email: string;
-	password: string;
-};
+import { ZodError } from "zod";
 
 export async function POST(request: Request) {
 	try {
-		const body = (await request.json()) as Partial<LoginBody>;
+		const body = await request.json();
+		const data = LoginSchema.parse(body);
 
-		if (!body.email || !body.password) {
-			return NextResponse.json(
-				{ error: "email and password are required." },
-				{ status: 400 }
-			);
-		}
-
-		const { token, payload } = await logIn(body.email, body.password);
-
-		// Opportunistically clean up expired sessions
+		const { token, session } = await logIn(data.email, data.password);
 		void purgeExpiredSessions().catch(() => undefined);
 
 		const cookieStore = await cookies();
@@ -33,15 +23,15 @@ export async function POST(request: Request) {
 			maxAge: env.sessionTtlSeconds,
 		});
 
-		return NextResponse.json({ message: "Logged in.", session: payload });
+		return NextResponse.json({ message: "Logged in.", session });
 	} catch (error) {
-		const message =
-			error instanceof Error ? error.message : "Login failed.";
-		const status =
-			message.includes("Invalid email or password") ||
-			message.includes("deactivated")
-				? 401
-				: 500;
+		if (error instanceof ZodError) {
+			return NextResponse.json(
+				{ error: error.issues[0]?.message ?? "Validation error." },
+				{ status: 400 }
+			);
+		}
+		const { message, status } = toHttpError(error);
 		return NextResponse.json({ error: message }, { status });
 	}
 }

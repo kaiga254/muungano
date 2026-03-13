@@ -1,331 +1,371 @@
--- ============================================================
--- SaaS core tables
--- ============================================================
+-- =============================================================
+-- Muungano Wallet v4.0  —  PostgreSQL Schema
+-- Interledger-native multi-currency settlement wallet
+-- =============================================================
 
-CREATE TABLE IF NOT EXISTS companies (
-	id UUID PRIMARY KEY,
-	name TEXT NOT NULL,
-	country VARCHAR(4) NOT NULL DEFAULT 'KE',       -- ISO-3166-1 alpha-2 or alpha-3
-	currency VARCHAR(8) NOT NULL DEFAULT 'KES',
-	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-	updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+-- Extensions
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+CREATE EXTENSION IF NOT EXISTS "citext";
+
+-- =============================================================
+-- Enums
+-- =============================================================
+
+DO $$ BEGIN
+  CREATE TYPE kyc_status AS ENUM ('pending', 'verified', 'rejected');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE otp_purpose AS ENUM ('verify_phone', 'reset_pin');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE wallet_status AS ENUM ('active', 'frozen');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE supported_currency AS ENUM ('KES', 'MWK', 'USD');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE ledger_entry_type AS ENUM (
+    'deposit', 'withdrawal', 'transfer_out', 'transfer_in',
+    'fx_conversion_out', 'fx_conversion_in',
+    'ilp_payment_out', 'ilp_payment_in', 'fee'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE deposit_method AS ENUM ('bank', 'mobile_money');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE transaction_status AS ENUM ('pending', 'processing', 'completed', 'failed');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE quote_status AS ENUM ('pending', 'used', 'expired', 'rejected');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE receiver_type AS ENUM ('phone', 'ilp_address', 'wallet_id');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE fraud_event_type AS ENUM (
+    'large_transfer', 'failed_pin_attempts', 'unusual_location', 'rapid_sends'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+-- =============================================================
+-- Users  —  root entity (no company/tenant layer)
+-- =============================================================
 
 CREATE TABLE IF NOT EXISTS users (
-	id UUID PRIMARY KEY,
-	company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
-	email TEXT NOT NULL,
-	password_hash TEXT NOT NULL,
-	full_name TEXT NOT NULL,
-	role VARCHAR(32) NOT NULL DEFAULT 'hr_admin',   -- hr_admin | payroll_officer | viewer
-	is_active BOOLEAN NOT NULL DEFAULT TRUE,
-	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-	updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email          CITEXT UNIQUE NOT NULL,
+  phone          TEXT UNIQUE NOT NULL,
+  password_hash  TEXT NOT NULL,
+  pin_hash       TEXT,                         -- set after registration
+  full_name      TEXT NOT NULL,
+  country        TEXT NOT NULL,
+  ilp_address    TEXT UNIQUE,                  -- e.g. g.muungano.<uuid>
+  kyc_tier       SMALLINT NOT NULL DEFAULT 0,  -- 0 = none, 1 = tier-1
+  phone_verified BOOLEAN NOT NULL DEFAULT FALSE,
+  is_active      BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS uidx_users_email ON users (LOWER(email));
+-- =============================================================
+-- Sessions
+-- =============================================================
 
 CREATE TABLE IF NOT EXISTS sessions (
-	token TEXT PRIMARY KEY,
-	user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-	company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
-	expires_at TIMESTAMPTZ NOT NULL,
-	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  token      TEXT PRIMARY KEY,
+  user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions (user_id);
-CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions (expires_at);
+CREATE INDEX IF NOT EXISTS sessions_user_id_idx ON sessions(user_id);
 
--- ============================================================
--- Employee records
--- ============================================================
+-- =============================================================
+-- OTPs
+-- =============================================================
 
-CREATE TABLE IF NOT EXISTS employees (
-	id UUID PRIMARY KEY,
-	company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
-	employee_number TEXT,                                   -- optional HR-assigned ID
-	full_name TEXT NOT NULL,
-	email TEXT,
-	phone TEXT,
-	department TEXT,
-	job_title TEXT,
-	employment_type VARCHAR(32) NOT NULL DEFAULT 'full_time',  -- full_time | part_time | contract
-	country VARCHAR(4) NOT NULL DEFAULT 'KE',
-	-- Salary
-	salary_amount NUMERIC(14, 2) NOT NULL,
-	salary_currency VARCHAR(8) NOT NULL DEFAULT 'MWK',
-	-- Payout
-	destination_pointer TEXT NOT NULL,                     -- Open Payments / wallet address
-	-- Statutory identifiers (Malawi + Kenya)
-	national_id TEXT,
-	kra_pin TEXT,                                          -- Kenya
-	nhif_number TEXT,                                      -- Kenya
-	nssf_number TEXT,                                      -- Kenya / Malawi
-	tpin TEXT,                                             -- Malawi Tax PIN
-	-- Status
-	is_active BOOLEAN NOT NULL DEFAULT TRUE,
-	start_date DATE,
-	end_date DATE,
-	-- Audit
-	created_by UUID REFERENCES users(id),
-	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-	updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE TABLE IF NOT EXISTS otps (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  code_hash  TEXT NOT NULL,
+  purpose    otp_purpose NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at    TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS uidx_employees_number
-	ON employees (company_id, employee_number)
-	WHERE employee_number IS NOT NULL;
+CREATE INDEX IF NOT EXISTS otps_user_id_idx ON otps(user_id);
 
-CREATE INDEX IF NOT EXISTS idx_employees_company_id ON employees (company_id);
+-- =============================================================
+-- KYC Profiles  —  Tier-1 identity verification
+-- =============================================================
 
--- Per-employee split rule overrides (null = use global default)
-CREATE TABLE IF NOT EXISTS employee_split_rules (
-	id UUID PRIMARY KEY,
-	employee_id UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
-	split_key VARCHAR(32) NOT NULL,   -- matches SplitRule.key
-	label TEXT NOT NULL,
-	percentage NUMERIC(5, 2) NOT NULL CHECK (percentage >= 0 AND percentage <= 100),
-	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-	updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE TABLE IF NOT EXISTS kyc_profiles (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id       UUID UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  full_name     TEXT NOT NULL,
+  national_id   TEXT NOT NULL,
+  date_of_birth DATE NOT NULL,
+  country       TEXT NOT NULL,
+  status        kyc_status NOT NULL DEFAULT 'pending',
+  verified_at   TIMESTAMPTZ,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS uidx_split_rules_employee_key
-	ON employee_split_rules (employee_id, split_key);
+-- =============================================================
+-- Wallets  —  created on-demand per currency
+-- =============================================================
 
--- ============================================================
--- Payroll transaction log (now company-and-employee relational)
--- ============================================================
-
-CREATE TABLE IF NOT EXISTS payroll_transactions (
-	id UUID PRIMARY KEY,
-	company_id UUID REFERENCES companies(id),
-	employee_id UUID REFERENCES employees(id),
-	created_by UUID REFERENCES users(id),
-	employee_name TEXT NOT NULL,
-	source_amount NUMERIC(14, 2) NOT NULL,
-	source_currency VARCHAR(8) NOT NULL,
-	destination_amount NUMERIC(14, 2) NOT NULL,
-	destination_currency VARCHAR(8) NOT NULL,
-	destination_pointer TEXT NOT NULL,
-	quote_id TEXT NOT NULL,
-	payment_id TEXT NOT NULL,
-	status VARCHAR(16) NOT NULL,
-	splits_json JSONB NOT NULL,
-	distribution_json JSONB NOT NULL,
-	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE TABLE IF NOT EXISTS wallets (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  currency   supported_currency NOT NULL,
+  status     wallet_status NOT NULL DEFAULT 'active',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (user_id, currency)
 );
 
-CREATE INDEX IF NOT EXISTS idx_payroll_transactions_created_at
-	ON payroll_transactions (created_at DESC);
+CREATE INDEX IF NOT EXISTS wallets_user_id_idx ON wallets(user_id);
 
-CREATE INDEX IF NOT EXISTS idx_payroll_transactions_company_id
-	ON payroll_transactions (company_id, created_at DESC);
+-- =============================================================
+-- Ledger Entries  —  canonical balance source
+-- All amounts stored as integers (smallest currency unit, e.g. cents)
+-- =============================================================
 
-CREATE INDEX IF NOT EXISTS idx_payroll_transactions_employee_id
-	ON payroll_transactions (employee_id, created_at DESC);
+CREATE TABLE IF NOT EXISTS ledger_entries (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  wallet_id     UUID NOT NULL REFERENCES wallets(id) ON DELETE RESTRICT,
+  type          ledger_entry_type NOT NULL,
+  amount        BIGINT NOT NULL CHECK (amount > 0),
+  balance_after BIGINT NOT NULL CHECK (balance_after >= 0),
+  reference     TEXT NOT NULL,
+  metadata_json JSONB NOT NULL DEFAULT '{}',
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (wallet_id, reference)
+);
 
--- ============================================================
--- Simulator ledger (employee sub-accounts per rail)
--- ============================================================
+CREATE INDEX IF NOT EXISTS ledger_entries_wallet_id_idx ON ledger_entries(wallet_id);
+CREATE INDEX IF NOT EXISTS ledger_entries_created_at_idx ON ledger_entries(created_at DESC);
+
+-- =============================================================
+-- Deposits
+-- =============================================================
+
+CREATE TABLE IF NOT EXISTS deposits (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  wallet_id       UUID NOT NULL REFERENCES wallets(id) ON DELETE RESTRICT,
+  amount          BIGINT NOT NULL CHECK (amount > 0),
+  currency        supported_currency NOT NULL,
+  method          deposit_method NOT NULL,
+  status          transaction_status NOT NULL DEFAULT 'pending',
+  reference       TEXT UNIQUE NOT NULL,
+  idempotency_key TEXT UNIQUE,
+  metadata_json   JSONB NOT NULL DEFAULT '{}',
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS deposits_user_id_idx ON deposits(user_id);
+CREATE INDEX IF NOT EXISTS deposits_wallet_id_idx ON deposits(wallet_id);
+
+-- =============================================================
+-- Withdrawals
+-- =============================================================
+
+CREATE TABLE IF NOT EXISTS withdrawals (
+  id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id                  UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  wallet_id                UUID NOT NULL REFERENCES wallets(id) ON DELETE RESTRICT,
+  destination_type         deposit_method NOT NULL,
+  destination_details_json JSONB NOT NULL DEFAULT '{}',
+  amount                   BIGINT NOT NULL CHECK (amount > 0),
+  currency                 supported_currency NOT NULL,
+  fee                      BIGINT NOT NULL DEFAULT 0 CHECK (fee >= 0),
+  status                   transaction_status NOT NULL DEFAULT 'pending',
+  idempotency_key          TEXT UNIQUE,
+  created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS withdrawals_user_id_idx ON withdrawals(user_id);
+
+-- =============================================================
+-- Quotes  —  30-second TTL pre-payment transparency
+-- =============================================================
+
+CREATE TABLE IF NOT EXISTS quotes (
+  id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id              UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  source_currency      supported_currency NOT NULL,
+  destination_currency supported_currency NOT NULL,
+  source_amount        BIGINT NOT NULL CHECK (source_amount > 0),
+  destination_amount   BIGINT NOT NULL CHECK (destination_amount > 0),
+  exchange_rate        NUMERIC(20, 8) NOT NULL,
+  fees_json            JSONB NOT NULL DEFAULT '{}',
+  rafiki_quote_id      TEXT,
+  expires_at           TIMESTAMPTZ NOT NULL,
+  status               quote_status NOT NULL DEFAULT 'pending',
+  created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS quotes_user_id_idx ON quotes(user_id);
+
+-- =============================================================
+-- Payments  —  Cross-border ILP payments
+-- =============================================================
+
+CREATE TABLE IF NOT EXISTS payments (
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  sender_wallet_id    UUID NOT NULL REFERENCES wallets(id) ON DELETE RESTRICT,
+  receiver_identifier TEXT NOT NULL,
+  receiver_type       receiver_type NOT NULL,
+  amount              BIGINT NOT NULL CHECK (amount > 0),
+  currency            supported_currency NOT NULL,
+  quote_id            UUID REFERENCES quotes(id),
+  rafiki_payment_id   TEXT,
+  status              transaction_status NOT NULL DEFAULT 'pending',
+  idempotency_key     TEXT UNIQUE,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS payments_sender_wallet_idx ON payments(sender_wallet_id);
+
+-- =============================================================
+-- Internal Transfers  —  FX inter-wallet swaps
+-- =============================================================
+
+CREATE TABLE IF NOT EXISTS internal_transfers (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id          UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  source_wallet_id UUID NOT NULL REFERENCES wallets(id) ON DELETE RESTRICT,
+  dest_wallet_id   UUID NOT NULL REFERENCES wallets(id) ON DELETE RESTRICT,
+  source_amount    BIGINT NOT NULL CHECK (source_amount > 0),
+  dest_amount      BIGINT NOT NULL CHECK (dest_amount > 0),
+  fx_rate          NUMERIC(20, 8) NOT NULL,
+  quote_id         UUID REFERENCES quotes(id),
+  status           transaction_status NOT NULL DEFAULT 'pending',
+  idempotency_key  TEXT UNIQUE,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS internal_transfers_user_id_idx ON internal_transfers(user_id);
+
+-- =============================================================
+-- Treasury Balances  —  liquidity management
+-- =============================================================
+
+CREATE TABLE IF NOT EXISTS treasury_balances (
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  currency            supported_currency UNIQUE NOT NULL,
+  available_liquidity BIGINT NOT NULL DEFAULT 0,
+  reserved_liquidity  BIGINT NOT NULL DEFAULT 0,
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+INSERT INTO treasury_balances (currency, available_liquidity)
+VALUES
+  ('KES', 100000000),
+  ('MWK', 500000000),
+  ('USD',  50000000)
+ON CONFLICT (currency) DO NOTHING;
+
+-- =============================================================
+-- Rate Limits
+-- =============================================================
+
+CREATE TABLE IF NOT EXISTS rate_limits (
+  user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  date            DATE NOT NULL DEFAULT CURRENT_DATE,
+  transfer_count  INT NOT NULL DEFAULT 0,
+  transfer_volume BIGINT NOT NULL DEFAULT 0,  -- USD-cent equivalent
+  PRIMARY KEY (user_id, date)
+);
+
+-- =============================================================
+-- Fraud Events
+-- =============================================================
+
+CREATE TABLE IF NOT EXISTS fraud_events (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  event_type   fraud_event_type NOT NULL,
+  details_json JSONB NOT NULL DEFAULT '{}',
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS fraud_events_user_id_idx    ON fraud_events(user_id);
+CREATE INDEX IF NOT EXISTS fraud_events_created_at_idx ON fraud_events(created_at DESC);
+
+-- =============================================================
+-- Simulator Accounts  —  deposit / withdrawal channel simulator
+-- =============================================================
 
 CREATE TABLE IF NOT EXISTS simulator_accounts (
-	id UUID PRIMARY KEY,
-	company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
-	employee_id UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
-	rail VARCHAR(16) NOT NULL CHECK (rail IN ('mpesa', 'bank', 'sacco', 'insurance')),
-	account_ref TEXT NOT NULL,
-	currency VARCHAR(8) NOT NULL DEFAULT 'KES',
-	current_balance NUMERIC(14, 2) NOT NULL DEFAULT 0,
-	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-	updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-	UNIQUE (company_id, employee_id, rail, currency)
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         UUID REFERENCES users(id) ON DELETE SET NULL,
+  rail            TEXT NOT NULL,           -- 'mpesa' | 'bank'
+  account_label   TEXT NOT NULL DEFAULT 'primary',
+  current_balance BIGINT NOT NULL DEFAULT 0,
+  currency        TEXT NOT NULL DEFAULT 'KES',
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (user_id, rail)
 );
 
-CREATE INDEX IF NOT EXISTS idx_simulator_accounts_rail
-	ON simulator_accounts (company_id, rail, updated_at DESC);
+CREATE INDEX IF NOT EXISTS simulator_accounts_user_id_idx ON simulator_accounts(user_id);
+CREATE INDEX IF NOT EXISTS simulator_accounts_rail_idx    ON simulator_accounts(rail);
+
+-- =============================================================
+-- Simulator Transactions
+-- =============================================================
 
 CREATE TABLE IF NOT EXISTS simulator_transactions (
-	id UUID PRIMARY KEY,
-	company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
-	account_id UUID NOT NULL REFERENCES simulator_accounts(id) ON DELETE CASCADE,
-	employee_id UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
-	rail VARCHAR(16) NOT NULL CHECK (rail IN ('mpesa', 'bank', 'sacco', 'insurance')),
-	direction VARCHAR(8) NOT NULL CHECK (direction IN ('credit', 'debit')),
-	amount NUMERIC(14, 2) NOT NULL CHECK (amount > 0),
-	currency VARCHAR(8) NOT NULL,
-	reference TEXT NOT NULL,
-	narration TEXT,
-	balance_before NUMERIC(14, 2) NOT NULL,
-	balance_after NUMERIC(14, 2) NOT NULL,
-	metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
-	created_by UUID REFERENCES users(id),
-	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-	UNIQUE (company_id, reference)
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  account_id     UUID NOT NULL REFERENCES simulator_accounts(id) ON DELETE CASCADE,
+  user_id        UUID REFERENCES users(id) ON DELETE SET NULL,
+  rail           TEXT NOT NULL,
+  direction      TEXT NOT NULL CHECK (direction IN ('credit', 'debit')),
+  amount         BIGINT NOT NULL CHECK (amount > 0),
+  balance_before BIGINT NOT NULL,
+  balance_after  BIGINT NOT NULL,
+  reference      TEXT NOT NULL,
+  metadata_json  JSONB NOT NULL DEFAULT '{}',
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (reference)
 );
 
-CREATE INDEX IF NOT EXISTS idx_simulator_transactions_account
-	ON simulator_transactions (account_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS sim_txns_account_id_idx ON simulator_transactions(account_id);
+CREATE INDEX IF NOT EXISTS sim_txns_user_id_idx    ON simulator_transactions(user_id);
 
-CREATE INDEX IF NOT EXISTS idx_simulator_transactions_employee
-	ON simulator_transactions (employee_id, created_at DESC);
+-- =============================================================
+-- Helpful Views
+-- =============================================================
 
-CREATE SCHEMA IF NOT EXISTS mpesa;
-
-CREATE TABLE IF NOT EXISTS mpesa.accounts (
-	account_key TEXT PRIMARY KEY,
-	owner_name TEXT NOT NULL,
-	currency VARCHAR(8) NOT NULL,
-	balance NUMERIC(14, 2) NOT NULL DEFAULT 0,
-	metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
-	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-	updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS mpesa.transactions (
-	id TEXT PRIMARY KEY,
-	account_key TEXT NOT NULL REFERENCES mpesa.accounts(account_key),
-	action TEXT NOT NULL,
-	amount NUMERIC(14, 2) NOT NULL,
-	employee_name TEXT,
-	obligation TEXT,
-	currency VARCHAR(8) NOT NULL,
-	payload_json JSONB NOT NULL,
-	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_mpesa_transactions_created_at
-	ON mpesa.transactions (created_at DESC);
-
-INSERT INTO mpesa.accounts (account_key, owner_name, currency, balance, metadata_json)
-VALUES ('primary', 'Demo Worker Wallet', 'KES', 25000, '{"channel":"mpesa"}'::jsonb)
-ON CONFLICT (account_key) DO NOTHING;
-
-CREATE SCHEMA IF NOT EXISTS bank;
-
-CREATE TABLE IF NOT EXISTS bank.accounts (
-	account_key TEXT PRIMARY KEY,
-	owner_name TEXT NOT NULL,
-	currency VARCHAR(8) NOT NULL,
-	balance NUMERIC(14, 2) NOT NULL DEFAULT 0,
-	metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
-	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-	updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS bank.transactions (
-	id TEXT PRIMARY KEY,
-	account_key TEXT NOT NULL REFERENCES bank.accounts(account_key),
-	action TEXT NOT NULL,
-	amount NUMERIC(14, 2) NOT NULL,
-	employee_name TEXT,
-	obligation TEXT,
-	currency VARCHAR(8) NOT NULL,
-	payload_json JSONB NOT NULL,
-	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_bank_transactions_created_at
-	ON bank.transactions (created_at DESC);
-
-INSERT INTO bank.accounts (account_key, owner_name, currency, balance, metadata_json)
-VALUES ('primary', 'Demo Bank Clearing Account', 'KES', 50000, '{"channel":"bank"}'::jsonb)
-ON CONFLICT (account_key) DO NOTHING;
-
-CREATE SCHEMA IF NOT EXISTS sacco;
-
-CREATE TABLE IF NOT EXISTS sacco.accounts (
-	account_key TEXT PRIMARY KEY,
-	owner_name TEXT NOT NULL,
-	currency VARCHAR(8) NOT NULL,
-	balance NUMERIC(14, 2) NOT NULL DEFAULT 0,
-	metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
-	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-	updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS sacco.transactions (
-	id TEXT PRIMARY KEY,
-	account_key TEXT NOT NULL REFERENCES sacco.accounts(account_key),
-	action TEXT NOT NULL,
-	amount NUMERIC(14, 2) NOT NULL,
-	employee_name TEXT,
-	obligation TEXT,
-	currency VARCHAR(8) NOT NULL,
-	payload_json JSONB NOT NULL,
-	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_sacco_transactions_created_at
-	ON sacco.transactions (created_at DESC);
-
-INSERT INTO sacco.accounts (account_key, owner_name, currency, balance, metadata_json)
-VALUES ('primary', 'Demo SACCO Member Savings', 'KES', 15000, '{"channel":"sacco"}'::jsonb)
-ON CONFLICT (account_key) DO NOTHING;
-
-CREATE SCHEMA IF NOT EXISTS insurance;
-
-CREATE TABLE IF NOT EXISTS insurance.accounts (
-	account_key TEXT PRIMARY KEY,
-	owner_name TEXT NOT NULL,
-	currency VARCHAR(8) NOT NULL,
-	balance NUMERIC(14, 2) NOT NULL DEFAULT 0,
-	metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
-	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-	updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS insurance.transactions (
-	id TEXT PRIMARY KEY,
-	account_key TEXT NOT NULL REFERENCES insurance.accounts(account_key),
-	action TEXT NOT NULL,
-	amount NUMERIC(14, 2) NOT NULL,
-	employee_name TEXT,
-	obligation TEXT,
-	currency VARCHAR(8) NOT NULL,
-	payload_json JSONB NOT NULL,
-	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_insurance_transactions_created_at
-	ON insurance.transactions (created_at DESC);
-
-INSERT INTO insurance.accounts (account_key, owner_name, currency, balance, metadata_json)
-VALUES ('primary', 'Demo Insurance Premium Wallet', 'KES', 8000, '{"channel":"insurance"}'::jsonb)
-ON CONFLICT (account_key) DO NOTHING;
-
--- ============================================================
--- Payroll pre-approval quotes (transparency gate)
--- ============================================================
-
-CREATE TABLE IF NOT EXISTS payroll_quotes (
-	id UUID PRIMARY KEY,
-	company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
-	employee_id UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
-	generated_by UUID REFERENCES users(id),
-	employee_name TEXT NOT NULL,
-	source_amount NUMERIC(14, 2) NOT NULL,
-	source_currency VARCHAR(8) NOT NULL DEFAULT 'MWK',
-	destination_amount NUMERIC(14, 2) NOT NULL,
-	destination_currency VARCHAR(8) NOT NULL DEFAULT 'KES',
-	destination_pointer TEXT NOT NULL,
-	exchange_rate NUMERIC(14, 6) NOT NULL,
-	transaction_fee NUMERIC(14, 2) NOT NULL DEFAULT 0,
-	splits_json JSONB NOT NULL,
-	rafiki_quote_id TEXT NOT NULL,
-	pay_period TEXT,
-	status VARCHAR(16) NOT NULL DEFAULT 'PENDING'
-		CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED', 'EXPIRED')),
-	expires_at TIMESTAMPTZ NOT NULL,
-	approved_at TIMESTAMPTZ,
-	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_payroll_quotes_company_id
-	ON payroll_quotes (company_id, created_at DESC);
-
-CREATE INDEX IF NOT EXISTS idx_payroll_quotes_employee_id
-	ON payroll_quotes (employee_id, created_at DESC);
-
-CREATE INDEX IF NOT EXISTS idx_payroll_quotes_pending_expiry
-	ON payroll_quotes (expires_at)
-	WHERE status = 'PENDING';
+-- Live wallet balances derived entirely from the ledger
+CREATE OR REPLACE VIEW wallet_balances AS
+SELECT
+  w.id        AS wallet_id,
+  w.user_id,
+  w.currency,
+  w.status,
+  COALESCE(
+    (SELECT le.balance_after
+     FROM   ledger_entries le
+     WHERE  le.wallet_id = w.id
+     ORDER  BY le.created_at DESC, le.id DESC
+     LIMIT  1),
+    0
+  ) AS balance,
+  w.created_at
+FROM wallets w;

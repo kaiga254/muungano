@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { resolveSession } from "@/services/authService";
+import { resolveSession } from "@/src/auth/authService";
 import { env } from "@/config/env";
 
 export async function GET() {

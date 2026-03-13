@@ -7,26 +7,25 @@ services:
       - "3000:3000"
     environment:
       APP_NAME: Muungano
-      MWK_TO_KES_RATE: 0.013
+      KES_USD_RATE: "0.00775"
+      MWK_USD_RATE: "0.00058"
+      MWK_KES_RATE: "0.013"
       RAFIKI_MOCK_MODE: "true"
       RAFIKI_SENDER_BASE_URL: http://rafiki-node-malawi:3000
       RAFIKI_RECEIVER_BASE_URL: http://rafiki-node-kenya:3000
+      ILP_DOMAIN: g.muungano
       DATABASE_URL: postgres://muungano:muungano@postgres:5432/muungano
       REDIS_URL: redis://redis:6379
-      MPESA_SERVICE_URL: http://mpesa-service:4101
-      BANK_SERVICE_URL: http://bank-service:4102
-      SACCO_SERVICE_URL: http://sacco-service:4103
-      INSURANCE_SERVICE_URL: http://insurance-service:4104
+      MPESA_SERVICE_URL: http://muungano-mpesa-simulator:4101
+      BANK_SERVICE_URL: http://muungano-bank-simulator:4102
     depends_on:
       - postgres
       - redis
       - rafiki-node-malawi
       - rafiki-node-kenya
       - ilp-connector
-      - mpesa-service
-      - bank-service
-      - sacco-service
-      - insurance-service
+      - muungano-mpesa-simulator
+      - muungano-bank-simulator
 
   rafiki-node-malawi:
     image: node:20-alpine
@@ -62,47 +61,27 @@ services:
     ports:
       - "6379:6379"
 
-  mpesa-service:
+  muungano-mpesa-simulator:
     build:
       context: ./simulators/mpesa-service
-    container_name: mpesa-service
+    container_name: muungano-mpesa-simulator
     environment:
       DATABASE_URL: postgres://muungano:muungano@postgres:5432/muungano
+      SERVICE_NAME: mpesa
     ports:
       - "4101:4101"
     depends_on:
       - postgres
 
-  bank-service:
+  muungano-bank-simulator:
     build:
       context: ./simulators/bank-service
-    container_name: bank-service
+    container_name: muungano-bank-simulator
     environment:
       DATABASE_URL: postgres://muungano:muungano@postgres:5432/muungano
+      SERVICE_NAME: bank
     ports:
       - "4102:4102"
-    depends_on:
-      - postgres
-
-  sacco-service:
-    build:
-      context: ./simulators/sacco-service
-    container_name: sacco-service
-    environment:
-      DATABASE_URL: postgres://muungano:muungano@postgres:5432/muungano
-    ports:
-      - "4103:4103"
-    depends_on:
-      - postgres
-
-  insurance-service:
-    build:
-      context: ./simulators/insurance-service
-    container_name: insurance-service
-    environment:
-      DATABASE_URL: postgres://muungano:muungano@postgres:5432/muungano
-    ports:
-      - "4104:4104"
     depends_on:
       - postgres
 
