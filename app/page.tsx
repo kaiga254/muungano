@@ -10,25 +10,25 @@ export default function Home() {
         <CardContent className="grid gap-10 p-8 md:grid-cols-[1.2fr_0.8fr] md:p-12">
           <div className="space-y-6">
             <Badge variant="secondary" className="w-fit rounded-full px-3 py-1">
-              ILP + Rafiki Payroll Prototype
+              Payroll SaaS · ILP + Rafiki
             </Badge>
             <div className="space-y-4">
               <h1 className="max-w-3xl text-4xl font-semibold tracking-tight md:text-5xl">
-                Muungano cross-border payroll with visible settlement simulators.
+                Cross-border payroll and obligation routing, built for HR teams.
               </h1>
               <p className="max-w-2xl text-base text-muted-foreground md:text-lg">
-                Execute salaries from Malawi to Kenya, settle over Rafiki/Open Payments,
-                and route obligations into wallet, family remittance, SACCO, school,
-                and insurance interfaces.
+                Onboard employees, configure split rules, and execute salaries
+                from Malawi to Kenya over Rafiki/Open Payments — with full
+                settlement visibility.
               </p>
             </div>
             <div className="flex flex-wrap gap-3">
-              <Link href="/dashboard">
-                <Button size="lg">Open Dashboard</Button>
+              <Link href="/signup">
+                <Button size="lg">Get started</Button>
               </Link>
-              <Link href="/simulators">
+              <Link href="/login">
                 <Button size="lg" variant="outline">
-                  Open Simulators
+                  Sign in
                 </Button>
               </Link>
             </div>
@@ -37,17 +37,19 @@ export default function Home() {
           <div className="grid gap-4 rounded-xl border border-border/70 bg-muted/40 p-6">
             <div>
               <p className="text-sm font-medium text-muted-foreground">Flow</p>
-              <p className="mt-2 text-lg font-semibold">MWK → KES programmable payroll</p>
+              <p className="mt-2 text-lg font-semibold">
+                MWK → KES programmable payroll
+              </p>
             </div>
             <div className="grid gap-3 text-sm text-muted-foreground">
               <div className="rounded-lg border border-border/70 bg-background/80 p-4">
-                Quote creation and payment dispatch through Rafiki services.
+                HR signs up, creates company workspace, and onboards employees with salary and split configuration.
               </div>
               <div className="rounded-lg border border-border/70 bg-background/80 p-4">
-                Visual simulator state for MPESA, bank, SACCO, and insurance.
+                Payroll runs dispatch quotes and outgoing payments through Rafiki with real-time obligation routing.
               </div>
               <div className="rounded-lg border border-border/70 bg-background/80 p-4">
-                Persistent payroll and simulator ledgers stored in PostgreSQL.
+                Persistent employee and payroll ledgers stored in Neon PostgreSQL.
               </div>
             </div>
           </div>

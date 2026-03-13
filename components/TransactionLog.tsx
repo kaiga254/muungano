@@ -31,11 +31,15 @@ export default function TransactionLog({ logs }: TransactionLogProps) {
     <Card className="border-border/70 bg-card/95">
       <CardHeader>
         <CardTitle>Transaction Log</CardTitle>
-        <CardDescription>Recent payroll executions and downstream delivery status.</CardDescription>
+        <CardDescription>
+          Recent payroll executions and downstream delivery status.
+        </CardDescription>
       </CardHeader>
       <CardContent>
         {!logs.length ? (
-          <p className="text-sm text-muted-foreground">No payroll executions yet.</p>
+          <p className="text-sm text-muted-foreground">
+            No payroll executions yet.
+          </p>
         ) : (
           <ul className="grid gap-3">
             {logs.map((entry) => (
@@ -57,7 +61,9 @@ export default function TransactionLog({ logs }: TransactionLogProps) {
                   {entry.distributionResults.map((result) => (
                     <Badge
                       key={`${entry.id}-${result.obligation}`}
-                      variant={result.status === "SUCCESS" ? "success" : "destructive"}
+                      variant={
+                        result.status === "SUCCESS" ? "success" : "destructive"
+                      }
                     >
                       {result.obligation}: {result.status}
                     </Badge>

@@ -28,12 +28,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Toast,
   ToastClose,
@@ -146,8 +141,12 @@ const Ledger = ({
             <TableCell>
               <Badge variant="outline">{item.action}</Badge>
             </TableCell>
-            <TableCell className="font-medium">{item.employeeName ?? "N/A"}</TableCell>
-            <TableCell>{moneyLabel(Number(item.amount) || 0, item.currency || "KES")}</TableCell>
+            <TableCell className="font-medium">
+              {item.employeeName ?? "N/A"}
+            </TableCell>
+            <TableCell>
+              {moneyLabel(Number(item.amount) || 0, item.currency || "KES")}
+            </TableCell>
             <TableCell className="text-muted-foreground">
               {new Date(item.receivedAt).toLocaleString()}
             </TableCell>
@@ -192,14 +191,25 @@ function ActionForm({
       <div className="grid gap-2 md:grid-cols-2">
         <div className="grid gap-2">
           <Label>{title} target</Label>
-          <Input value={nameValue} onChange={(event) => onNameChange(event.target.value)} />
+          <Input
+            value={nameValue}
+            onChange={(event) => onNameChange(event.target.value)}
+          />
         </div>
         <div className="grid gap-2">
           <Label>{amountLabel}</Label>
-          <Input value={amountValue} onChange={(event) => onAmountChange(event.target.value)} />
+          <Input
+            value={amountValue}
+            onChange={(event) => onAmountChange(event.target.value)}
+          />
         </div>
       </div>
-      <Button type="button" variant={buttonVariant} onClick={onSubmit} className="w-full sm:w-fit">
+      <Button
+        type="button"
+        variant={buttonVariant}
+        onClick={onSubmit}
+        className="w-full sm:w-fit"
+      >
         {submitLabel}
       </Button>
     </div>
@@ -207,7 +217,9 @@ function ActionForm({
 }
 
 export default function SimulatorsPage() {
-  const [status, setStatus] = useState<Record<SimulatorServiceKey, ServiceStatus>>({
+  const [status, setStatus] = useState<
+    Record<SimulatorServiceKey, ServiceStatus>
+  >({
     mpesa: "loading",
     bank: "loading",
     sacco: "loading",
@@ -247,11 +259,31 @@ export default function SimulatorsPage() {
       },
   );
 
-  const [mpesaForm, setMpesaForm] = useState({ employeeName: "Worker", amount: "1200", currency: "KES" });
-  const [bankTransferForm, setBankTransferForm] = useState({ employeeName: "Family", amount: "900", currency: "KES" });
-  const [bankPaymentForm, setBankPaymentForm] = useState({ employeeName: "School", amount: "600", currency: "KES" });
-  const [saccoForm, setSaccoForm] = useState({ employeeName: "Savings", amount: "450", currency: "KES" });
-  const [insuranceForm, setInsuranceForm] = useState({ employeeName: "Cover", amount: "300", currency: "KES" });
+  const [mpesaForm, setMpesaForm] = useState({
+    employeeName: "Worker",
+    amount: "1200",
+    currency: "KES",
+  });
+  const [bankTransferForm, setBankTransferForm] = useState({
+    employeeName: "Family",
+    amount: "900",
+    currency: "KES",
+  });
+  const [bankPaymentForm, setBankPaymentForm] = useState({
+    employeeName: "School",
+    amount: "600",
+    currency: "KES",
+  });
+  const [saccoForm, setSaccoForm] = useState({
+    employeeName: "Savings",
+    amount: "450",
+    currency: "KES",
+  });
+  const [insuranceForm, setInsuranceForm] = useState({
+    employeeName: "Cover",
+    amount: "300",
+    currency: "KES",
+  });
   const [message, setMessage] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("mpesa");
   const [selectedEntry, setSelectedEntry] = useState<LedgerEntry | null>(null);
@@ -263,7 +295,12 @@ export default function SimulatorsPage() {
 
   useEffect(() => {
     const sync = async () => {
-      const services: SimulatorServiceKey[] = ["mpesa", "bank", "sacco", "insurance"];
+      const services: SimulatorServiceKey[] = [
+        "mpesa",
+        "bank",
+        "sacco",
+        "insurance",
+      ];
       await Promise.all(
         services.map(async (service) => {
           try {
@@ -276,12 +313,13 @@ export default function SimulatorsPage() {
       );
 
       try {
-        const [latestMpesa, latestBank, latestSacco, latestInsurance] = await Promise.all([
-          getMpesaState(),
-          getBankState(),
-          getSaccoState(),
-          getInsuranceState(),
-        ]);
+        const [latestMpesa, latestBank, latestSacco, latestInsurance] =
+          await Promise.all([
+            getMpesaState(),
+            getBankState(),
+            getSaccoState(),
+            getInsuranceState(),
+          ]);
 
         setMpesaState(latestMpesa);
         setBankState(latestBank);
@@ -293,7 +331,9 @@ export default function SimulatorsPage() {
         writeState(STORAGE_KEYS.sacco, latestSacco);
         writeState(STORAGE_KEYS.insurance, latestInsurance);
       } catch {
-        setMessage("Some simulator states could not be refreshed. Showing cached values where available.");
+        setMessage(
+          "Some simulator states could not be refreshed. Showing cached values where available.",
+        );
       }
     };
 
@@ -316,7 +356,8 @@ export default function SimulatorsPage() {
         description: "Simulator state updated successfully.",
       });
     } catch (error) {
-      const description = error instanceof Error ? error.message : "Simulator action failed.";
+      const description =
+        error instanceof Error ? error.message : "Simulator action failed.";
       setMessage(description);
       setToastState({
         open: true,
@@ -330,54 +371,65 @@ export default function SimulatorsPage() {
     <ToastProvider>
       <main className="mx-auto grid min-h-screen w-full max-w-7xl gap-6 px-4 py-8">
         <Card className="border-border/70 bg-card/95 shadow-sm">
-        <CardContent className="flex flex-wrap items-start justify-between gap-4 p-6">
-          <div className="space-y-3">
-            <Badge variant="secondary" className="w-fit rounded-full px-3 py-1">
-              Localhost Simulator Console
-            </Badge>
-            <div>
-              <h1 className="text-3xl font-semibold tracking-tight">Financial Simulator Console</h1>
-              <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-                Mimicked interfaces for MPESA, bank, SACCO, and insurance services with
-                persistent state and live browser interaction.
-              </p>
+          <CardContent className="flex flex-wrap items-start justify-between gap-4 p-6">
+            <div className="space-y-3">
+              <Badge
+                variant="secondary"
+                className="w-fit rounded-full px-3 py-1"
+              >
+                Localhost Simulator Console
+              </Badge>
+              <div>
+                <h1 className="text-3xl font-semibold tracking-tight">
+                  Financial Simulator Console
+                </h1>
+                <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
+                  Mimicked interfaces for MPESA, bank, SACCO, and insurance
+                  services with persistent state and live browser interaction.
+                </p>
+              </div>
             </div>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Link href="/dashboard">
-              <Button variant="outline">Back to Dashboard</Button>
-            </Link>
-            <Link href="/">
-              <Button variant="ghost">Home</Button>
-            </Link>
-          </div>
-        </CardContent>
+            <div className="flex flex-wrap gap-2">
+              <Link href="/dashboard">
+                <Button variant="outline">Back to Dashboard</Button>
+              </Link>
+              <Link href="/">
+                <Button variant="ghost">Home</Button>
+              </Link>
+            </div>
+          </CardContent>
         </Card>
 
         <section className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
-        <Card className="xl:col-span-2">
-          <CardContent className="p-5">
-            <p className="text-sm text-muted-foreground">Offline services</p>
-            <p className="mt-1 text-3xl font-semibold">{offlineCount}</p>
-          </CardContent>
-        </Card>
-        <Card className="xl:col-span-2">
-          <CardContent className="p-5">
-            <p className="text-sm text-muted-foreground">MPESA wallet</p>
-            <p className="mt-1 text-3xl font-semibold">{moneyLabel(mpesaState.balance, "KES")}</p>
-          </CardContent>
-        </Card>
-        <Card className="xl:col-span-2">
-          <CardContent className="p-5">
-            <p className="text-sm text-muted-foreground">Bank flow total</p>
-            <p className="mt-1 text-3xl font-semibold">{moneyLabel(bankState.accountBalance, "KES")}</p>
-          </CardContent>
-        </Card>
+          <Card className="xl:col-span-2">
+            <CardContent className="p-5">
+              <p className="text-sm text-muted-foreground">Offline services</p>
+              <p className="mt-1 text-3xl font-semibold">{offlineCount}</p>
+            </CardContent>
+          </Card>
+          <Card className="xl:col-span-2">
+            <CardContent className="p-5">
+              <p className="text-sm text-muted-foreground">MPESA wallet</p>
+              <p className="mt-1 text-3xl font-semibold">
+                {moneyLabel(mpesaState.balance, "KES")}
+              </p>
+            </CardContent>
+          </Card>
+          <Card className="xl:col-span-2">
+            <CardContent className="p-5">
+              <p className="text-sm text-muted-foreground">Bank flow total</p>
+              <p className="mt-1 text-3xl font-semibold">
+                {moneyLabel(bankState.accountBalance, "KES")}
+              </p>
+            </CardContent>
+          </Card>
         </section>
 
         {message ? (
           <Card className="border-border/70 bg-muted/40">
-            <CardContent className="p-4 text-sm text-muted-foreground">{message}</CardContent>
+            <CardContent className="p-4 text-sm text-muted-foreground">
+              {message}
+            </CardContent>
           </Card>
         ) : null}
 
@@ -395,15 +447,21 @@ export default function SimulatorsPage() {
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <CardTitle>MPESA Wallet</CardTitle>
-                    <CardDescription>Balance and recent wallet credits.</CardDescription>
+                    <CardDescription>
+                      Balance and recent wallet credits.
+                    </CardDescription>
                   </div>
                   <StatusBadge status={status.mpesa} />
                 </div>
               </CardHeader>
               <CardContent className="grid gap-5">
                 <div className="rounded-lg border border-border/70 bg-muted/40 p-4">
-                  <p className="text-sm text-muted-foreground">Current balance</p>
-                  <p className="mt-1 text-2xl font-semibold">{moneyLabel(mpesaState.balance, "KES")}</p>
+                  <p className="text-sm text-muted-foreground">
+                    Current balance
+                  </p>
+                  <p className="mt-1 text-2xl font-semibold">
+                    {moneyLabel(mpesaState.balance, "KES")}
+                  </p>
                 </div>
                 <ActionForm
                   title="Wallet credit"
@@ -411,8 +469,12 @@ export default function SimulatorsPage() {
                   submitLabel="Credit Wallet"
                   nameValue={mpesaForm.employeeName}
                   amountValue={mpesaForm.amount}
-                  onNameChange={(value) => setMpesaForm((prev) => ({ ...prev, employeeName: value }))}
-                  onAmountChange={(value) => setMpesaForm((prev) => ({ ...prev, amount: value }))}
+                  onNameChange={(value) =>
+                    setMpesaForm((prev) => ({ ...prev, employeeName: value }))
+                  }
+                  onAmountChange={(value) =>
+                    setMpesaForm((prev) => ({ ...prev, amount: value }))
+                  }
                   onSubmit={() => {
                     void runAction(async () => {
                       const result = await creditMpesaWallet({
@@ -441,15 +503,21 @@ export default function SimulatorsPage() {
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <CardTitle>Bank Interface</CardTitle>
-                    <CardDescription>Family transfers and school fee disbursements.</CardDescription>
+                    <CardDescription>
+                      Family transfers and school fee disbursements.
+                    </CardDescription>
                   </div>
                   <StatusBadge status={status.bank} />
                 </div>
               </CardHeader>
               <CardContent className="grid gap-5">
                 <div className="rounded-lg border border-border/70 bg-muted/40 p-4">
-                  <p className="text-sm text-muted-foreground">Account flow total</p>
-                  <p className="mt-1 text-2xl font-semibold">{moneyLabel(bankState.accountBalance, "KES")}</p>
+                  <p className="text-sm text-muted-foreground">
+                    Account flow total
+                  </p>
+                  <p className="mt-1 text-2xl font-semibold">
+                    {moneyLabel(bankState.accountBalance, "KES")}
+                  </p>
                 </div>
                 <ActionForm
                   title="Family remittance"
@@ -458,8 +526,15 @@ export default function SimulatorsPage() {
                   nameValue={bankTransferForm.employeeName}
                   amountValue={bankTransferForm.amount}
                   buttonVariant="outline"
-                  onNameChange={(value) => setBankTransferForm((prev) => ({ ...prev, employeeName: value }))}
-                  onAmountChange={(value) => setBankTransferForm((prev) => ({ ...prev, amount: value }))}
+                  onNameChange={(value) =>
+                    setBankTransferForm((prev) => ({
+                      ...prev,
+                      employeeName: value,
+                    }))
+                  }
+                  onAmountChange={(value) =>
+                    setBankTransferForm((prev) => ({ ...prev, amount: value }))
+                  }
                   onSubmit={() => {
                     void runAction(async () => {
                       const result = await submitBankTransfer({
@@ -480,8 +555,15 @@ export default function SimulatorsPage() {
                   nameValue={bankPaymentForm.employeeName}
                   amountValue={bankPaymentForm.amount}
                   buttonVariant="secondary"
-                  onNameChange={(value) => setBankPaymentForm((prev) => ({ ...prev, employeeName: value }))}
-                  onAmountChange={(value) => setBankPaymentForm((prev) => ({ ...prev, amount: value }))}
+                  onNameChange={(value) =>
+                    setBankPaymentForm((prev) => ({
+                      ...prev,
+                      employeeName: value,
+                    }))
+                  }
+                  onAmountChange={(value) =>
+                    setBankPaymentForm((prev) => ({ ...prev, amount: value }))
+                  }
                   onSubmit={() => {
                     void runAction(async () => {
                       const result = await submitBankPayment({
@@ -510,15 +592,21 @@ export default function SimulatorsPage() {
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <CardTitle>SACCO Savings</CardTitle>
-                    <CardDescription>Savings deposits and member accumulation.</CardDescription>
+                    <CardDescription>
+                      Savings deposits and member accumulation.
+                    </CardDescription>
                   </div>
                   <StatusBadge status={status.sacco} />
                 </div>
               </CardHeader>
               <CardContent className="grid gap-5">
                 <div className="rounded-lg border border-border/70 bg-muted/40 p-4">
-                  <p className="text-sm text-muted-foreground">Savings balance</p>
-                  <p className="mt-1 text-2xl font-semibold">{moneyLabel(saccoState.savingsBalance, "KES")}</p>
+                  <p className="text-sm text-muted-foreground">
+                    Savings balance
+                  </p>
+                  <p className="mt-1 text-2xl font-semibold">
+                    {moneyLabel(saccoState.savingsBalance, "KES")}
+                  </p>
                 </div>
                 <ActionForm
                   title="Savings deposit"
@@ -527,8 +615,12 @@ export default function SimulatorsPage() {
                   nameValue={saccoForm.employeeName}
                   amountValue={saccoForm.amount}
                   buttonVariant="outline"
-                  onNameChange={(value) => setSaccoForm((prev) => ({ ...prev, employeeName: value }))}
-                  onAmountChange={(value) => setSaccoForm((prev) => ({ ...prev, amount: value }))}
+                  onNameChange={(value) =>
+                    setSaccoForm((prev) => ({ ...prev, employeeName: value }))
+                  }
+                  onAmountChange={(value) =>
+                    setSaccoForm((prev) => ({ ...prev, amount: value }))
+                  }
                   onSubmit={() => {
                     void runAction(async () => {
                       const result = await submitSaccoDeposit({
@@ -557,15 +649,21 @@ export default function SimulatorsPage() {
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <CardTitle>Insurance Premiums</CardTitle>
-                    <CardDescription>Premium collection and recent payment history.</CardDescription>
+                    <CardDescription>
+                      Premium collection and recent payment history.
+                    </CardDescription>
                   </div>
                   <StatusBadge status={status.insurance} />
                 </div>
               </CardHeader>
               <CardContent className="grid gap-5">
                 <div className="rounded-lg border border-border/70 bg-muted/40 p-4">
-                  <p className="text-sm text-muted-foreground">Total premiums</p>
-                  <p className="mt-1 text-2xl font-semibold">{moneyLabel(insuranceState.totalPremiums, "KES")}</p>
+                  <p className="text-sm text-muted-foreground">
+                    Total premiums
+                  </p>
+                  <p className="mt-1 text-2xl font-semibold">
+                    {moneyLabel(insuranceState.totalPremiums, "KES")}
+                  </p>
                 </div>
                 <ActionForm
                   title="Premium payment"
@@ -574,8 +672,15 @@ export default function SimulatorsPage() {
                   nameValue={insuranceForm.employeeName}
                   amountValue={insuranceForm.amount}
                   buttonVariant="secondary"
-                  onNameChange={(value) => setInsuranceForm((prev) => ({ ...prev, employeeName: value }))}
-                  onAmountChange={(value) => setInsuranceForm((prev) => ({ ...prev, amount: value }))}
+                  onNameChange={(value) =>
+                    setInsuranceForm((prev) => ({
+                      ...prev,
+                      employeeName: value,
+                    }))
+                  }
+                  onAmountChange={(value) =>
+                    setInsuranceForm((prev) => ({ ...prev, amount: value }))
+                  }
                   onSubmit={() => {
                     void runAction(async () => {
                       const result = await submitInsurancePremium({
@@ -599,11 +704,16 @@ export default function SimulatorsPage() {
           </TabsContent>
         </Tabs>
 
-        <Dialog open={Boolean(selectedEntry)} onOpenChange={(open) => !open && setSelectedEntry(null)}>
+        <Dialog
+          open={Boolean(selectedEntry)}
+          onOpenChange={(open) => !open && setSelectedEntry(null)}
+        >
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Transaction details</DialogTitle>
-              <DialogDescription>Expanded simulator ledger entry information.</DialogDescription>
+              <DialogDescription>
+                Expanded simulator ledger entry information.
+              </DialogDescription>
             </DialogHeader>
             {selectedEntry ? (
               <div className="grid gap-3 text-sm">
@@ -613,12 +723,17 @@ export default function SimulatorsPage() {
                 </div>
                 <div className="rounded-lg border border-border/70 bg-muted/40 p-3">
                   <div className="text-muted-foreground">Employee / target</div>
-                  <div className="font-medium">{selectedEntry.employeeName ?? "N/A"}</div>
+                  <div className="font-medium">
+                    {selectedEntry.employeeName ?? "N/A"}
+                  </div>
                 </div>
                 <div className="rounded-lg border border-border/70 bg-muted/40 p-3">
                   <div className="text-muted-foreground">Amount</div>
                   <div className="font-medium">
-                    {moneyLabel(Number(selectedEntry.amount) || 0, selectedEntry.currency || "KES")}
+                    {moneyLabel(
+                      Number(selectedEntry.amount) || 0,
+                      selectedEntry.currency || "KES",
+                    )}
                   </div>
                 </div>
                 <div className="rounded-lg border border-border/70 bg-muted/40 p-3">
@@ -629,14 +744,19 @@ export default function SimulatorsPage() {
                 </div>
                 <div className="rounded-lg border border-border/70 bg-muted/40 p-3">
                   <div className="text-muted-foreground">Obligation</div>
-                  <div className="font-medium">{selectedEntry.obligation ?? "Not provided"}</div>
+                  <div className="font-medium">
+                    {selectedEntry.obligation ?? "Not provided"}
+                  </div>
                 </div>
               </div>
             ) : null}
           </DialogContent>
         </Dialog>
 
-        <Toast open={toastState.open} onOpenChange={(open) => setToastState((prev) => ({ ...prev, open }))}>
+        <Toast
+          open={toastState.open}
+          onOpenChange={(open) => setToastState((prev) => ({ ...prev, open }))}
+        >
           <ToastTitle>{toastState.title}</ToastTitle>
           <ToastDescription>{toastState.description}</ToastDescription>
           <ToastClose>×</ToastClose>

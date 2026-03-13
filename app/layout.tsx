@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { AuthProvider } from "@/lib/auth-context";
+import AppNav from "@/components/AppNav";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -15,7 +17,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Muungano Payroll",
   description:
-    "ILP-based cross-border payroll demo using Rafiki and Open Payments",
+    "ILP-based cross-border payroll SaaS with HR employee management and Rafiki Open Payments",
 };
 
 export default function RootLayout({
@@ -28,7 +30,10 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        {children}
+        <AuthProvider>
+          <AppNav />
+          {children}
+        </AuthProvider>
       </body>
     </html>
   );

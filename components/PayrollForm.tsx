@@ -79,7 +79,11 @@ export default function PayrollForm({ onSubmit, isLoading }: PayrollFormProps) {
             />
           </div>
 
-          <Button type="submit" disabled={isLoading} className="w-full sm:w-fit">
+          <Button
+            type="submit"
+            disabled={isLoading}
+            className="w-full sm:w-fit"
+          >
             {isLoading ? "Running..." : "Run Payroll"}
           </Button>
         </form>
