@@ -1,438 +1,303 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import SplitDisplay from "@/components/SplitDisplay";
-import TransactionLog, {
-  type TransactionItem,
-} from "@/components/TransactionLog";
-import PayrollQuoteDialog from "@/components/PayrollQuoteDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
-import type { SalarySplit } from "@/services/payrollService";
-import type { Employee } from "@/services/employeeService";
-import type { PayrollQuote } from "@/services/quoteService";
+import { useAuth } from "@/lib/auth-context";
 
-type RunPayrollResponse = {
-  payrollRun: TransactionItem & {
-    splits: SalarySplit[];
-  };
-  error?: string;
-  details?: string;
+type Wallet = {
+	id: string;
+	currency: string;
+	status: string;
+	balance: string;
 };
 
-type PayrollRunsResponse = {
-  runs?: Array<
-    TransactionItem & {
-      splits: SalarySplit[];
-    }
-  >;
-  pagination?: {
-    limit: number;
-    offset: number;
-    hasMore: boolean;
-  };
-  error?: string;
+type Payment = {
+	id: string;
+	destinationPointer: string;
+	sourceCurrency: string;
+	sourceAmount: string;
+	status: string;
+	createdAt: string;
 };
 
-async function parseJsonSafely<T>(response: Response): Promise<T | null> {
-  const text = await response.text();
-  if (!text) {
-    return null;
-  }
+const CURRENCY_FLAGS: Record<string, string> = {
+	KES: "🇰🇪",
+	MWK: "🇲🇼",
+	USD: "🇺🇸",
+};
 
-  try {
-    return JSON.parse(text) as T;
-  } catch {
-    return null;
-  }
+function formatBalance(amount: string, currency: string): string {
+	const num = Number(amount) / 100;
+	return `${currency} ${num.toLocaleString(undefined, {
+		minimumFractionDigits: 2,
+		maximumFractionDigits: 2,
+	})}`;
 }
 
 export default function DashboardPage() {
-  const router = useRouter();
-  const rowsPerPageOptions = [10, 20, 50];
-  const [quoteLoading, setQuoteLoading] = useState(false);
-  const [approving, setApproving] = useState(false);
-  const [pendingQuote, setPendingQuote] = useState<PayrollQuote | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [employees, setEmployees] = useState<Employee[]>([]);
-  const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
-  const [latestSplits, setLatestSplits] = useState<SalarySplit[]>([]);
-  const [latestTotal, setLatestTotal] = useState<number>(0);
-  const [logs, setLogs] = useState<TransactionItem[]>([]);
-  const [logsPage, setLogsPage] = useState(0);
-  const [logsRowsPerPage, setLogsRowsPerPage] = useState(10);
-  const [logsHasMore, setLogsHasMore] = useState(false);
-  const [logsLoading, setLogsLoading] = useState(false);
+	const router = useRouter();
+	const { session } = useAuth();
+	const [wallets, setWallets] = useState<Wallet[]>([]);
+	const [recentPayments, setRecentPayments] = useState<Payment[]>([]);
+	const [loading, setLoading] = useState(true);
+	const [kycTier, setKycTier] = useState<number>(0);
 
-  const fetchRecentRuns = useCallback(
-    async (page = 0) => {
-      setLogsLoading(true);
-      try {
-        const offset = page * logsRowsPerPage;
-        const response = await fetch(
-          `/api/payroll/runs?limit=${logsRowsPerPage}&offset=${offset}`,
-        );
-        if (response.status === 401) {
-          router.push("/login");
-          return;
-        }
+	useEffect(() => {
+		const load = async () => {
+			setLoading(true);
+			try {
+				const [walletsRes, paymentsRes, kycRes] = await Promise.all([
+					fetch("/api/wallets"),
+					fetch("/api/payments/history?limit=5"),
+					fetch("/api/kyc/status"),
+				]);
 
-        const payload = await parseJsonSafely<PayrollRunsResponse>(response);
-        if (!response.ok || !payload) {
-          return;
-        }
+				if (walletsRes.status === 401) {
+					router.push("/login");
+					return;
+				}
 
-        const runs = payload.runs ?? [];
-        setLogs(runs);
-        setLogsHasMore(Boolean(payload.pagination?.hasMore));
+				if (walletsRes.ok) {
+					const d = (await walletsRes.json()) as { wallets?: Wallet[] };
+					setWallets(d.wallets ?? []);
+				}
+				if (paymentsRes.ok) {
+					const d = (await paymentsRes.json()) as { payments?: Payment[] };
+					setRecentPayments(d.payments ?? []);
+				}
+				if (kycRes.ok) {
+					const d = (await kycRes.json()) as {
+						profile?: { kyc_tier?: number };
+					};
+					setKycTier(d.profile?.kyc_tier ?? 0);
+				}
+			} catch {
+				// non-critical
+			} finally {
+				setLoading(false);
+			}
+		};
+		void load();
+	}, [router]);
 
-        if (page === 0 && runs.length > 0) {
-          setLatestTotal(runs[0].destinationAmount);
-          setLatestSplits(runs[0].splits ?? []);
-        }
+	return (
+		<main className="mx-auto w-full max-w-5xl px-4 py-8 space-y-6">
+			{/* Header */}
+			<div className="flex flex-wrap items-start justify-between gap-4">
+				<div>
+					<Badge
+						variant="secondary"
+						className="mb-2 rounded-full px-3 py-1"
+					>
+						Interledger Wallet
+					</Badge>
+					<h1 className="text-3xl font-semibold tracking-tight">
+						Welcome back
+						{session?.fullName
+							? `, ${session.fullName.split(" ")[0]}`
+							: ""}
+					</h1>
+					{session?.ilpAddress && (
+						<p className="mt-1 text-xs text-muted-foreground font-mono">
+							{session.ilpAddress}
+						</p>
+					)}
+				</div>
+				<div className="flex gap-2">
+					<Link href="/kyc">
+						<Button variant="outline" size="sm">
+							KYC
+						</Button>
+					</Link>
+					<Link href="/deposit">
+						<Button size="sm">+ Deposit</Button>
+					</Link>
+				</div>
+			</div>
 
-        if (page === 0 && runs.length === 0) {
-          setLatestTotal(0);
-          setLatestSplits([]);
-        }
-      } catch {
-        // non-critical
-      } finally {
-        setLogsLoading(false);
-      }
-    },
-    [logsRowsPerPage, router],
-  );
+			{/* KYC banner */}
+			{kycTier === 0 && (
+				<Card className="border-amber-500/40 bg-amber-500/5">
+					<CardContent className="flex items-center justify-between p-4 text-sm">
+						<span className="text-amber-700 dark:text-amber-400">
+							Complete Tier-1 KYC to unlock cross-border transfers.
+						</span>
+						<Link href="/kyc">
+							<Button size="sm" variant="outline">
+								Verify now →
+							</Button>
+						</Link>
+					</CardContent>
+				</Card>
+			)}
 
-  const fetchEmployees = useCallback(async () => {
-    try {
-      const res = await fetch("/api/employees");
-      if (res.status === 401) {
-        router.push("/login");
-        return;
-      }
+			{/* Wallets grid */}
+			<div>
+				<div className="mb-3 flex items-center justify-between">
+					<h2 className="font-semibold">My Wallets</h2>
+					<Link href="/wallets">
+						<Button variant="ghost" size="sm">
+							View all →
+						</Button>
+					</Link>
+				</div>
+				{loading ? (
+					<div className="text-sm text-muted-foreground">
+						Loading wallets…
+					</div>
+				) : wallets.length === 0 ? (
+					<Card className="border-dashed border-border/70">
+						<CardContent className="flex flex-col items-center gap-3 p-8 text-center">
+							<p className="text-muted-foreground text-sm">
+								No wallets yet. Create one to get started.
+							</p>
+							<Link href="/wallets">
+								<Button>Create wallet</Button>
+							</Link>
+						</CardContent>
+					</Card>
+				) : (
+					<div className="grid gap-3 sm:grid-cols-3">
+						{wallets.map((w) => (
+							<Link
+								key={w.id}
+								href={`/wallets?currency=${w.currency}`}
+							>
+								<Card className="cursor-pointer hover:border-primary/50 transition-colors border-border/70 bg-card/95">
+									<CardContent className="p-5">
+										<div className="flex items-center gap-2 mb-2">
+											<span className="text-xl">
+												{CURRENCY_FLAGS[w.currency] ??
+													"💰"}
+											</span>
+											<span className="text-sm font-medium text-muted-foreground">
+												{w.currency}
+											</span>
+											{w.status !== "active" && (
+												<Badge
+													variant="secondary"
+													className="text-xs"
+												>
+													{w.status}
+												</Badge>
+											)}
+										</div>
+										<div className="text-2xl font-semibold tabular-nums">
+											{formatBalance(w.balance, w.currency)}
+										</div>
+									</CardContent>
+								</Card>
+							</Link>
+						))}
+					</div>
+				)}
+			</div>
 
-      const data = await parseJsonSafely<{ employees?: Employee[] }>(res);
-      if (!res.ok) {
-        return;
-      }
+			{/* Quick actions */}
+			<div>
+				<h2 className="font-semibold mb-3">Quick Actions</h2>
+				<div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+					{[
+						{
+							label: "Send",
+							href: "/send",
+							desc: "Cross-border ILP",
+						},
+						{
+							label: "Deposit",
+							href: "/deposit",
+							desc: "Bank or M-Pesa",
+						},
+						{
+							label: "Withdraw",
+							href: "/withdraw",
+							desc: "Back to account",
+						},
+						{
+							label: "Convert",
+							href: "/wallets",
+							desc: "FX swap wallets",
+						},
+					].map((action) => (
+						<Link key={action.href} href={action.href}>
+							<Card className="cursor-pointer hover:border-primary/50 transition-colors border-border/70">
+								<CardContent className="p-4">
+									<div className="font-medium">
+										{action.label}
+									</div>
+									<div className="text-xs text-muted-foreground mt-0.5">
+										{action.desc}
+									</div>
+								</CardContent>
+							</Card>
+						</Link>
+					))}
+				</div>
+			</div>
 
-      const active = (data?.employees ?? []).filter((e) => e.isActive);
-      setEmployees(active);
-      if (active.length > 0) {
-        setSelectedEmployeeId(active[0].id);
-      }
-    } catch {
-      // non-critical
-    }
-  }, [router]);
-
-  useEffect(() => {
-    void fetchEmployees();
-  }, [fetchEmployees]);
-
-  useEffect(() => {
-    void fetchRecentRuns(logsPage);
-  }, [fetchRecentRuns, logsPage]);
-
-  useEffect(() => {
-    setLogsPage(0);
-  }, [logsRowsPerPage]);
-
-  const selectedEmployee = employees.find((e) => e.id === selectedEmployeeId);
-
-  /** Step 1 – fetch a transparency quote; opens the confirmation dialog */
-  const requestQuote = async () => {
-    if (!selectedEmployeeId) return;
-    setQuoteLoading(true);
-    setError(null);
-    try {
-      const response = await fetch("/api/payroll/quote", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ employeeId: selectedEmployeeId }),
-      });
-      const payload = await parseJsonSafely<{ quote?: PayrollQuote; error?: string }>(response);
-      if (!response.ok || !payload?.quote) {
-        throw new Error(payload?.error ?? "Failed to generate quote");
-      }
-      setPendingQuote(payload.quote);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to generate quote");
-    } finally {
-      setQuoteLoading(false);
-    }
-  };
-
-  /** Step 2 – admin approved the quote; execute the payroll run */
-  const handleApproveQuote = async () => {
-    if (!pendingQuote) return;
-    setApproving(true);
-    setError(null);
-    try {
-      const response = await fetch("/api/payroll/run", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ quoteId: pendingQuote.id }),
-      });
-      const payload = await parseJsonSafely<RunPayrollResponse>(response);
-      if (!payload) {
-        throw new Error(
-          `Payroll API returned an empty or invalid response (${response.status})`,
-        );
-      }
-      if (!response.ok || !payload.payrollRun) {
-        throw new Error(
-          payload.details || payload.error || "Payroll execution failed",
-        );
-      }
-      setPendingQuote(null);
-      setLatestSplits(payload.payrollRun.splits);
-      setLatestTotal(payload.payrollRun.destinationAmount);
-      setLogsPage(0);
-      await fetchRecentRuns(0);
-    } catch (runError) {
-      setError(
-        runError instanceof Error ? runError.message : "Unable to run payroll",
-      );
-      setPendingQuote(null);
-    } finally {
-      setApproving(false);
-    }
-  };
-
-  /** Admin cancelled / rejected the quote */
-  const handleRejectQuote = () => {
-    if (!pendingQuote) return;
-    // Fire-and-forget reject (marks quote REJECTED in DB)
-    void fetch(`/api/payroll/quote?id=${pendingQuote.id}`, {
-      method: "DELETE",
-    });
-    setPendingQuote(null);
-  };
-
-  return (
-    <main className="mx-auto grid min-h-screen w-full max-w-7xl gap-6 px-4 py-8 xl:grid-cols-[1.05fr_0.95fr]">
-      <div className="grid content-start gap-6">
-        <Card className="border-border/70 bg-card/95 shadow-sm">
-          <CardContent className="space-y-5 p-6">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="space-y-2">
-                <Badge
-                  variant="secondary"
-                  className="w-fit rounded-full px-3 py-1"
-                >
-                  Payroll Orchestration
-                </Badge>
-                <div>
-                  <h1 className="text-3xl font-semibold tracking-tight">
-                    Payroll Dashboard
-                  </h1>
-                  <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-                    Select an employee and run cross-border payroll from Malawi
-                    (MWK) to Kenya (KES) through Rafiki, routing settled funds
-                    to downstream obligations.
-                  </p>
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Link href="/employees">
-                  <Button variant="outline">Manage Employees</Button>
-                </Link>
-                <Link href="/simulators">
-                  <Button variant="outline">Simulators</Button>
-                </Link>
-              </div>
-            </div>
-
-            <div className="grid gap-3 md:grid-cols-3">
-              <div className="rounded-lg border border-border/70 bg-muted/40 p-4">
-                <div className="text-sm text-muted-foreground">
-                  Latest settlement
-                </div>
-                <div className="mt-1 text-2xl font-semibold">
-                  KES {latestTotal.toLocaleString()}
-                </div>
-              </div>
-              <div className="rounded-lg border border-border/70 bg-muted/40 p-4">
-                <div className="text-sm text-muted-foreground">
-                  Recent payroll runs
-                </div>
-                <div className="mt-1 text-2xl font-semibold">{logs.length}</div>
-              </div>
-              <div className="rounded-lg border border-border/70 bg-muted/40 p-4">
-                <div className="text-sm text-muted-foreground">
-                  Active employees
-                </div>
-                <div className="mt-1 text-2xl font-semibold">
-                  {employees.length}
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Payroll runner */}
-        <Card className="border-border/70 bg-card/95 backdrop-blur-sm">
-          <CardContent className="p-6 space-y-5">
-            <div>
-              <h2 className="text-lg font-semibold">Run Payroll</h2>
-              <p className="text-sm text-muted-foreground mt-1">
-                Select an onboarded employee to trigger cross-border settlement
-                and obligation routing.
-              </p>
-            </div>
-
-            {employees.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-border/70 p-6 text-center">
-                <p className="text-muted-foreground text-sm">
-                  No active employees found.
-                </p>
-                <Link href="/employees">
-                  <Button variant="outline" className="mt-3">
-                    Onboard employees →
-                  </Button>
-                </Link>
-              </div>
-            ) : (
-              <div className="grid gap-5">
-                <div className="grid gap-2">
-                  <Label htmlFor="employee-select">Employee</Label>
-                  <select
-                    id="employee-select"
-                    value={selectedEmployeeId}
-                    onChange={(e) => setSelectedEmployeeId(e.target.value)}
-                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                  >
-                    {employees.map((emp) => (
-                      <option key={emp.id} value={emp.id}>
-                        {emp.fullName}
-                        {emp.employeeNumber ? ` (${emp.employeeNumber})` : ""}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {selectedEmployee ? (
-                  <div className="grid grid-cols-2 gap-3 rounded-lg border border-border/60 bg-muted/30 p-4 text-sm">
-                    <div>
-                      <div className="text-muted-foreground">Salary</div>
-                      <div className="font-medium">
-                        {selectedEmployee.salaryCurrency}{" "}
-                        {selectedEmployee.salaryAmount.toLocaleString()} / month
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-muted-foreground">Destination</div>
-                      <div className="font-medium truncate">
-                        {selectedEmployee.destinationPointer}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-muted-foreground">Department</div>
-                      <div className="font-medium">
-                        {selectedEmployee.department ?? "—"}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-muted-foreground">Split rules</div>
-                      <div className="font-medium">
-                        {selectedEmployee.splitRules.length} allocations
-                      </div>
-                    </div>
-                  </div>
-                ) : null}
-
-                <Button
-                  onClick={() => void requestQuote()}
-                  disabled={quoteLoading || approving || !selectedEmployeeId}
-                  className="w-full sm:w-fit"
-                >
-                  {quoteLoading ? "Getting quote…" : "Get Quote & Run Payroll"}
-                </Button>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {error ? (
-          <Card className="border-destructive/40 bg-destructive/5">
-            <CardContent className="p-4 text-sm text-destructive">
-              {error}
-            </CardContent>
-          </Card>
-        ) : null}
-      </div>
-
-      <PayrollQuoteDialog
-        quote={pendingQuote}
-        open={!!pendingQuote}
-        approving={approving}
-        onApprove={() => void handleApproveQuote()}
-        onReject={handleRejectQuote}
-      />
-
-      <div className="grid content-start gap-6">
-        <SplitDisplay
-          splits={latestSplits}
-          total={latestTotal}
-          currency="KES"
-        />
-        <TransactionLog logs={logs} maxHeightClassName="max-h-[28rem]" />
-
-        <Card className="border-border/70 bg-card/95">
-          <CardContent className="grid gap-3 p-4 sm:flex sm:items-center sm:justify-between">
-            <div className="flex items-center gap-2">
-              <Label
-                htmlFor="logs-rows"
-                className="text-sm text-muted-foreground"
-              >
-                Rows per page
-              </Label>
-              <select
-                id="logs-rows"
-                value={logsRowsPerPage}
-                onChange={(event) =>
-                  setLogsRowsPerPage(Number(event.target.value))
-                }
-                className="flex h-8 rounded-md border border-input bg-transparent px-2 text-sm"
-                disabled={logsLoading}
-              >
-                {rowsPerPageOptions.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="text-sm text-muted-foreground">
-              {logsLoading ? "Loading…" : `Page ${logsPage + 1}`}
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setLogsPage((page) => Math.max(0, page - 1))}
-                disabled={logsLoading || logsPage === 0}
-              >
-                Previous
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setLogsPage((page) => page + 1)}
-                disabled={logsLoading || !logsHasMore}
-              >
-                Next
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    </main>
-  );
+			{/* Recent payments */}
+			<div>
+				<div className="mb-3 flex items-center justify-between">
+					<h2 className="font-semibold">Recent Payments</h2>
+					<Link href="/history">
+						<Button variant="ghost" size="sm">
+							View all →
+						</Button>
+					</Link>
+				</div>
+				<Card className="border-border/70 bg-card/95">
+					<CardContent className="p-0">
+						{loading ? (
+							<div className="p-6 text-sm text-muted-foreground">
+								Loading…
+							</div>
+						) : recentPayments.length === 0 ? (
+							<div className="p-6 text-center text-sm text-muted-foreground">
+								No payments yet.
+							</div>
+						) : (
+							<div className="divide-y divide-border/60">
+								{recentPayments.map((p) => (
+									<div
+										key={p.id}
+										className="flex items-center justify-between px-5 py-3 text-sm"
+									>
+										<div>
+											<div className="font-medium truncate max-w-48">
+												{p.destinationPointer}
+											</div>
+											<div className="text-xs text-muted-foreground mt-0.5">
+												{new Date(
+													p.createdAt,
+												).toLocaleDateString()}
+											</div>
+										</div>
+										<div className="text-right">
+											<div className="font-medium tabular-nums">
+												-{formatBalance(p.sourceAmount, p.sourceCurrency)}
+											</div>
+											<Badge
+												variant={
+													p.status === "completed"
+														? "secondary"
+														: "outline"
+												}
+												className="text-xs mt-0.5"
+											>
+												{p.status}
+											</Badge>
+										</div>
+									</div>
+								))}
+							</div>
+						)}
+					</CardContent>
+				</Card>
+			</div>
+		</main>
+	);
 }

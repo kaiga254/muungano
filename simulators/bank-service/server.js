@@ -1,203 +1,25 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
+/**
+ * Muungano Bank Simulator
+ * Simulates a bank channel for wallet deposits and withdrawals.
+ *
+ * Endpoints:
+ *   GET  /health                  — liveness probe
+ *   GET  /state                   — current float balance + recent txns
+ *   POST /deposit                 — initiate a deposit (auto-confirms after 2s)
+ *   POST /withdraw                — initiate a withdrawal
+ *   GET  /transactions            — list recent transactions
+ */
 const { randomUUID } = require("crypto");
 const express = require("express");
-const { Pool } = require("pg");
 
 const app = express();
-const port = process.env.PORT || 4102;
-const accountKey = "primary";
-const seedBalance = 50000;
+const PORT = process.env.PORT || 4102;
+const MAIN_APP_URL = process.env.MAIN_APP_URL || "http://localhost:3000";
 
-const ledger = [];
-let accountBalance = 0;
-let pool;
-
-const getPool = () => {
-  if (!process.env.DATABASE_URL) {
-    return undefined;
-  }
-
-  if (!pool) {
-    pool = new Pool({ connectionString: process.env.DATABASE_URL });
-  }
-
-  return pool;
-};
-
-const initializeDatabase = async () => {
-  const dbPool = getPool();
-  if (!dbPool) {
-    return;
-  }
-
-  await dbPool.query(`
-    CREATE SCHEMA IF NOT EXISTS bank;
-
-    CREATE TABLE IF NOT EXISTS bank.accounts (
-      account_key TEXT PRIMARY KEY,
-      owner_name TEXT NOT NULL,
-      currency VARCHAR(8) NOT NULL,
-      balance NUMERIC(14, 2) NOT NULL DEFAULT 0,
-      metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-
-    CREATE TABLE IF NOT EXISTS bank.transactions (
-      id TEXT PRIMARY KEY,
-      account_key TEXT NOT NULL REFERENCES bank.accounts(account_key),
-      action TEXT NOT NULL,
-      amount NUMERIC(14, 2) NOT NULL,
-      employee_name TEXT,
-      obligation TEXT,
-      currency VARCHAR(8) NOT NULL,
-      payload_json JSONB NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_bank_transactions_created_at
-      ON bank.transactions (created_at DESC);
-  `);
-
-  await dbPool.query(
-    `
-      INSERT INTO bank.accounts (account_key, owner_name, currency, balance, metadata_json)
-      VALUES ($1, $2, $3, $4, $5::jsonb)
-      ON CONFLICT (account_key) DO NOTHING
-    `,
-    [accountKey, "Demo Bank Clearing Account", "KES", seedBalance, JSON.stringify({ channel: "bank" })],
-  );
-};
-
-const getMemoryState = () => ({
-  accountBalance,
-  latestTransactions: ledger.slice(0, 20),
-});
-
-const normalizeRows = (rows) => {
-  return rows.map((row) => ({
-    action: row.action,
-    receivedAt:
-      row.receivedAt instanceof Date
-        ? row.receivedAt.toISOString()
-        : String(row.receivedAt),
-    amount: Number(row.amount),
-    employeeName: row.employeeName,
-    obligation: row.obligation,
-    currency: row.currency,
-  }));
-};
-
-const getState = async () => {
-  const dbPool = getPool();
-  if (!dbPool) {
-    return getMemoryState();
-  }
-
-  const [accountResult, transactionResult] = await Promise.all([
-    dbPool.query(
-      `
-        SELECT balance
-        FROM bank.accounts
-        WHERE account_key = $1
-        LIMIT 1
-      `,
-      [accountKey],
-    ),
-    dbPool.query(
-      `
-        SELECT
-          action,
-          amount,
-          employee_name AS "employeeName",
-          obligation,
-          currency,
-          created_at AS "receivedAt"
-        FROM bank.transactions
-        WHERE account_key = $1
-        ORDER BY created_at DESC
-        LIMIT 20
-      `,
-      [accountKey],
-    ),
-  ]);
-
-  return {
-    accountBalance: Number(accountResult.rows[0]?.balance ?? 0),
-    latestTransactions: normalizeRows(transactionResult.rows),
-  };
-};
-
-const persistEntry = async (payload) => {
-  const dbPool = getPool();
-  if (!dbPool) {
-    accountBalance += payload.amount;
-    ledger.unshift(payload);
-    if (ledger.length > 100) {
-      ledger.length = 100;
-    }
-
-    return getMemoryState();
-  }
-
-  const client = await dbPool.connect();
-
-  try {
-    await client.query("BEGIN");
-    await client.query(
-      `
-        INSERT INTO bank.accounts (account_key, owner_name, currency, balance, metadata_json)
-        VALUES ($1, $2, $3, $4, $5::jsonb)
-        ON CONFLICT (account_key) DO NOTHING
-      `,
-      [accountKey, "Demo Bank Clearing Account", payload.currency || "KES", seedBalance, JSON.stringify({ channel: "bank" })],
-    );
-    await client.query(
-      `
-        UPDATE bank.accounts
-        SET balance = balance + $1,
-            updated_at = NOW()
-        WHERE account_key = $2
-      `,
-      [payload.amount, accountKey],
-    );
-    await client.query(
-      `
-        INSERT INTO bank.transactions (
-          id,
-          account_key,
-          action,
-          amount,
-          employee_name,
-          obligation,
-          currency,
-          payload_json,
-          created_at
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::timestamptz)
-      `,
-      [
-        randomUUID(),
-        accountKey,
-        payload.action,
-        payload.amount,
-        payload.employeeName ?? null,
-        payload.obligation ?? null,
-        payload.currency || "KES",
-        JSON.stringify(payload),
-        payload.receivedAt,
-      ],
-    );
-    await client.query("COMMIT");
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
-
-  return getState();
-};
+// In-memory float account — seeded with KES 2,000,000 (bank has more float than mpesa)
+let floatBalance = 2_000_000_00; // stored in minor units
+const transactions = [];
 
 app.use(express.json());
 app.use((_req, res, next) => {
@@ -206,89 +28,122 @@ app.use((_req, res, next) => {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   next();
 });
+app.options("*", (_req, res) => res.sendStatus(204));
 
-app.options("*", (_req, res) => {
-  res.sendStatus(204);
-});
-
+/** GET /health */
 app.get("/health", (_req, res) => {
-  res.json({ status: "ok", service: "bank-service" });
+  res.json({ status: "ok", service: "muungano-bank-simulator" });
 });
 
-app.get("/state", async (_req, res) => {
-  try {
-    res.json({
-      service: "bank-service",
-      ...(await getState()),
-    });
-  } catch (error) {
-    res.status(500).json({
-      error: "Failed to load bank state",
-      details: error instanceof Error ? error.message : "Unknown state error",
-    });
-  }
-});
-
-app.post("/transfer", async (req, res) => {
-  const amount = Number(req.body?.amount) || 0;
-  const payload = {
-    service: "bank-service",
-    action: "transfer",
-    receivedAt: new Date().toISOString(),
-    amount,
-    ...req.body,
-  };
-
-  try {
-    const state = await persistEntry(payload);
-
-    console.log("[bank-service] transfer", payload);
-    res.json({
-      success: true,
-      payload,
-      state,
-    });
-  } catch (error) {
-    res.status(500).json({
-      error: "Failed to persist bank transfer",
-      details: error instanceof Error ? error.message : "Unknown persistence error",
-    });
-  }
-});
-
-app.post("/payment", async (req, res) => {
-  const amount = Number(req.body?.amount) || 0;
-  const payload = {
-    service: "bank-service",
-    action: "payment",
-    receivedAt: new Date().toISOString(),
-    amount,
-    ...req.body,
-  };
-
-  try {
-    const state = await persistEntry(payload);
-
-    console.log("[bank-service] payment", payload);
-    res.json({
-      success: true,
-      payload,
-      state,
-    });
-  } catch (error) {
-    res.status(500).json({
-      error: "Failed to persist bank payment",
-      details: error instanceof Error ? error.message : "Unknown persistence error",
-    });
-  }
-});
-
-initializeDatabase()
-  .catch((error) => {
-    console.error("[bank-service] database initialization failed", error);
-  })
-  .finally(() => {
-    app.listen(port, () => {
-      console.log(`[bank-service] listening on port ${port}`);
-    });
+/** GET /state */
+app.get("/state", (_req, res) => {
+  res.json({
+    service: "muungano-bank-simulator",
+    floatBalance,
+    currency: "KES",
+    recentTransactions: transactions.slice(0, 20),
   });
+});
+
+/** GET /transactions */
+app.get("/transactions", (req, res) => {
+  const limit = Math.min(Number(req.query.limit ?? 50), 200);
+  res.json({ transactions: transactions.slice(0, limit) });
+});
+
+/**
+ * POST /deposit
+ * Body: { depositId, amount, currency, accountNumber, reference }
+ * Simulates a bank transfer inbound. After 2 seconds (bank is slower than mpesa),
+ * calls back the main app's /api/deposits/confirm webhook.
+ */
+app.post("/deposit", async (req, res) => {
+  const { depositId, amount, currency = "KES", accountNumber, reference } = req.body ?? {};
+
+  if (!depositId || !amount) {
+    return res.status(400).json({ error: "depositId and amount are required." });
+  }
+
+  const txnId = randomUUID();
+  const amountNum = Number(amount);
+
+  const txn = {
+    id: txnId,
+    type: "deposit",
+    depositId,
+    amount: amountNum,
+    currency,
+    accountNumber: accountNumber ?? "unknown",
+    reference: reference ?? txnId,
+    status: "pending",
+    createdAt: new Date().toISOString(),
+  };
+  transactions.unshift(txn);
+
+  console.log(`[bank-sim] deposit initiated  depositId=${depositId} amount=${amountNum} ${currency}`);
+  res.json({ message: "Bank deposit received. Confirming in 2 seconds.", txnId });
+
+  // Bank transfers take a little longer than mobile money
+  setTimeout(async () => {
+    try {
+      const callbackUrl = `${MAIN_APP_URL}/api/deposits/confirm`;
+      const resp = await fetch(callbackUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ depositId, confirmedAmount: amountNum }),
+      });
+      const data = await resp.json();
+      txn.status = resp.ok ? "confirmed" : "failed";
+      txn.callbackResponse = data;
+      floatBalance -= amountNum;
+      console.log(`[bank-sim] deposit confirmed  depositId=${depositId} status=${txn.status}`);
+    } catch (err) {
+      txn.status = "callback_error";
+      txn.error = err.message;
+      console.error(`[bank-sim] deposit callback error depositId=${depositId}`, err.message);
+    }
+  }, 2000);
+});
+
+/**
+ * POST /withdraw
+ * Body: { withdrawalId, amount, currency, accountNumber, bankCode, reference }
+ * Simulates the main app pushing money to a bank account.
+ */
+app.post("/withdraw", (req, res) => {
+  const { withdrawalId, amount, currency = "KES", accountNumber, bankCode, reference } = req.body ?? {};
+
+  if (!withdrawalId || !amount) {
+    return res.status(400).json({ error: "withdrawalId and amount are required." });
+  }
+
+  const amountNum = Number(amount);
+
+  if (floatBalance < amountNum) {
+    return res.status(422).json({ error: "Simulator float insufficient." });
+  }
+
+  const txnId = randomUUID();
+  floatBalance += amountNum;
+
+  const txn = {
+    id: txnId,
+    type: "withdrawal",
+    withdrawalId,
+    amount: amountNum,
+    currency,
+    accountNumber: accountNumber ?? "unknown",
+    bankCode: bankCode ?? "000",
+    reference: reference ?? txnId,
+    status: "completed",
+    completedAt: new Date().toISOString(),
+  };
+  transactions.unshift(txn);
+
+  console.log(`[bank-sim] withdrawal completed withdrawalId=${withdrawalId} amount=${amountNum} ${currency}`);
+  res.json({ message: "Bank withdrawal processed.", txnId, status: "completed" });
+});
+
+app.listen(PORT, () => {
+  console.log(`[muungano-bank-simulator] listening on port ${PORT}`);
+});

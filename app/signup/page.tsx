@@ -15,12 +15,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/lib/auth-context";
 
-const CURRENCIES = [
-  { value: "KES", label: "KES – Kenyan Shilling" },
-  { value: "MWK", label: "MWK – Malawian Kwacha" },
-  { value: "USD", label: "USD – US Dollar" },
-];
-
 const COUNTRIES = [
   { value: "KE", label: "Kenya" },
   { value: "MW", label: "Malawi" },
@@ -30,10 +24,9 @@ export default function SignupPage() {
   const router = useRouter();
   const { refresh } = useAuth();
 
-  const [companyName, setCompanyName] = useState("");
-  const [companyCountry, setCompanyCountry] = useState("KE");
-  const [companyCurrency, setCompanyCurrency] = useState("KES");
   const [fullName, setFullName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [country, setCountry] = useState("KE");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -55,14 +48,7 @@ export default function SignupPage() {
       const signupRes = await fetch("/api/auth/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          companyName,
-          companyCountry,
-          companyCurrency,
-          fullName,
-          email,
-          password,
-        }),
+        body: JSON.stringify({ fullName, phone, country, email, password }),
       });
 
       const signupData = (await signupRes.json()) as { error?: string };
@@ -70,7 +56,6 @@ export default function SignupPage() {
         throw new Error(signupData.error ?? "Signup failed.");
       }
 
-      // Auto-login after signup
       const loginRes = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -83,7 +68,7 @@ export default function SignupPage() {
       }
 
       await refresh();
-      router.push("/employees");
+      router.push("/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
@@ -95,114 +80,89 @@ export default function SignupPage() {
     <main className="mx-auto flex min-h-screen w-full max-w-lg items-center justify-center px-4 py-12">
       <Card className="w-full border-border/70 bg-card/95 shadow-xl">
         <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl">Create your account</CardTitle>
+          <CardTitle className="text-2xl">Create your wallet</CardTitle>
           <CardDescription>
-            Set up your payroll workspace. You&apos;ll be the HR admin.
+            Open a free Muungano wallet. Hold KES, MWK, and USD.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="grid gap-5">
-            <div className="grid gap-4 rounded-lg border border-border/60 bg-muted/30 p-4">
-              <p className="text-sm font-medium text-muted-foreground">
-                Company details
-              </p>
-              <div className="grid gap-2">
-                <Label htmlFor="company-name">Company name</Label>
-                <Input
-                  id="company-name"
-                  required
-                  value={companyName}
-                  onChange={(e) => setCompanyName(e.target.value)}
-                  placeholder="Acme Ltd"
-                />
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="grid gap-2">
-                  <Label htmlFor="company-country">Country</Label>
-                  <select
-                    id="company-country"
-                    value={companyCountry}
-                    onChange={(e) => setCompanyCountry(e.target.value)}
-                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                  >
-                    {COUNTRIES.map((c) => (
-                      <option key={c.value} value={c.value}>
-                        {c.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="company-currency">Primary currency</Label>
-                  <select
-                    id="company-currency"
-                    value={companyCurrency}
-                    onChange={(e) => setCompanyCurrency(e.target.value)}
-                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                  >
-                    {CURRENCIES.map((c) => (
-                      <option key={c.value} value={c.value}>
-                        {c.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
+            <div className="grid gap-2">
+              <Label htmlFor="full-name">Full name</Label>
+              <Input
+                id="full-name"
+                required
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                placeholder="Jane Doe"
+                autoComplete="name"
+              />
             </div>
-
-            <div className="grid gap-4 rounded-lg border border-border/60 bg-muted/30 p-4">
-              <p className="text-sm font-medium text-muted-foreground">
-                Your HR admin account
-              </p>
-              <div className="grid gap-2">
-                <Label htmlFor="full-name">Full name</Label>
-                <Input
-                  id="full-name"
-                  required
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  placeholder="Jane Doe"
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="email">Email address</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="jane@company.com"
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="password">Password</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  required
-                  minLength={8}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="At least 8 characters"
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="confirm">Confirm password</Label>
-                <Input
-                  id="confirm"
-                  type="password"
-                  required
-                  value={confirm}
-                  onChange={(e) => setConfirm(e.target.value)}
-                />
-              </div>
+            <div className="grid gap-2">
+              <Label htmlFor="phone">Phone number</Label>
+              <Input
+                id="phone"
+                required
+                type="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="+254700000000"
+                autoComplete="tel"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="country">Country</Label>
+              <select
+                id="country"
+                value={country}
+                onChange={(e) => setCountry(e.target.value)}
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                {COUNTRIES.map((c) => (
+                  <option key={c.value} value={c.value}>{c.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="email">Email address</Label>
+              <Input
+                id="email"
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="jane@example.com"
+                autoComplete="email"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="password">Password</Label>
+              <Input
+                id="password"
+                type="password"
+                required
+                minLength={8}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="new-password"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="confirm">Confirm password</Label>
+              <Input
+                id="confirm"
+                type="password"
+                required
+                value={confirm}
+                onChange={(e) => setConfirm(e.target.value)}
+                autoComplete="new-password"
+              />
             </div>
 
             {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
             <Button type="submit" disabled={loading} className="w-full">
-              {loading ? "Creating account…" : "Create account"}
+              {loading ? "Creating wallet…" : "Create wallet"}
             </Button>
 
             <p className="text-center text-sm text-muted-foreground">

@@ -15,9 +15,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Muungano Payroll",
+  title: "Muungano Wallet",
   description:
-    "ILP-based cross-border payroll SaaS with HR employee management and Rafiki Open Payments",
+    "Interledger-native multi-currency settlement wallet — deposit, send, and receive money across borders using ILP.",
 };
 
 export default function RootLayout({

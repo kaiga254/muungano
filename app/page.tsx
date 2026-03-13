@@ -10,16 +10,16 @@ export default function Home() {
         <CardContent className="grid gap-10 p-8 md:grid-cols-[1.2fr_0.8fr] md:p-12">
           <div className="space-y-6">
             <Badge variant="secondary" className="w-fit rounded-full px-3 py-1">
-              Payroll SaaS · ILP + Rafiki
+              Interledger Wallet · ILP + Open Payments
             </Badge>
             <div className="space-y-4">
               <h1 className="max-w-3xl text-4xl font-semibold tracking-tight md:text-5xl">
-                Cross-border payroll and obligation routing, built for HR teams.
+                Your multi-currency wallet on the Interledger network.
               </h1>
               <p className="max-w-2xl text-base text-muted-foreground md:text-lg">
-                Onboard employees, configure split rules, and execute salaries
-                from Malawi to Kenya over Rafiki/Open Payments — with full
-                settlement visibility.
+                Hold KES, MWK, and USD. Deposit via bank or mobile money,
+                send cross-border ILP payments, and withdraw — all from one
+                open-standard wallet.
               </p>
             </div>
             <div className="flex flex-wrap gap-3">
@@ -36,23 +36,23 @@ export default function Home() {
 
           <div className="grid gap-4 rounded-xl border border-border/70 bg-muted/40 p-6">
             <div>
-              <p className="text-sm font-medium text-muted-foreground">Flow</p>
+                <p className="text-sm font-medium text-muted-foreground">How it works</p>
               <p className="mt-2 text-lg font-semibold">
-                MWK → KES programmable payroll
+                 KES · MWK · USD settlement wallet
               </p>
             </div>
             <div className="grid gap-3 text-sm text-muted-foreground">
               <div className="rounded-lg border border-border/70 bg-background/80 p-4">
-                HR signs up, creates company workspace, and onboards employees
-                with salary and split configuration.
+                 Sign up with your phone number and complete Tier-1 KYC to
+                 unlock cross-border transfers.
               </div>
               <div className="rounded-lg border border-border/70 bg-background/80 p-4">
-                Payroll runs dispatch quotes and outgoing payments through
-                Rafiki with real-time obligation routing.
+                 Deposit via M-Pesa or bank transfer. Get a live FX quote and
+                 send to any ILP address in seconds.
               </div>
               <div className="rounded-lg border border-border/70 bg-background/80 p-4">
-                Persistent employee and payroll ledgers stored in Neon
-                PostgreSQL.
+                 Double-entry ledger on Neon PostgreSQL — every cent accounted
+                 for, every movement traceable.
               </div>
             </div>
           </div>
