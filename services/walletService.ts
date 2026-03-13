@@ -58,15 +58,16 @@ export const logPayrollRun = async (record: PayrollRunRecord): Promise<void> => 
 
 export const getRecentPayrollRuns = async (
 	limit = 20,
-	companyId?: string
+	companyId?: string,
+	offset = 0
 ): Promise<PayrollRunRecord[]> => {
 	const rows = await query<Record<string, unknown>>(
 		companyId
 			? `SELECT * FROM payroll_transactions
 			   WHERE company_id = $1
-			   ORDER BY created_at DESC LIMIT $2`
-			: `SELECT * FROM payroll_transactions ORDER BY created_at DESC LIMIT $1`,
-		companyId ? [companyId, limit] : [limit]
+			   ORDER BY created_at DESC LIMIT $2 OFFSET $3`
+			: `SELECT * FROM payroll_transactions ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
+		companyId ? [companyId, limit, offset] : [limit, offset]
 	);
 
 	return rows.map((row) => ({

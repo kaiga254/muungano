@@ -22,6 +22,20 @@ type RunPayrollResponse = {
   details?: string;
 };
 
+type PayrollRunsResponse = {
+  runs?: Array<
+    TransactionItem & {
+      splits: SalarySplit[];
+    }
+  >;
+  pagination?: {
+    limit: number;
+    offset: number;
+    hasMore: boolean;
+  };
+  error?: string;
+};
+
 async function parseJsonSafely<T>(response: Response): Promise<T | null> {
   const text = await response.text();
   if (!text) {
@@ -37,6 +51,7 @@ async function parseJsonSafely<T>(response: Response): Promise<T | null> {
 
 export default function DashboardPage() {
   const router = useRouter();
+  const rowsPerPageOptions = [10, 20, 50];
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -44,6 +59,47 @@ export default function DashboardPage() {
   const [latestSplits, setLatestSplits] = useState<SalarySplit[]>([]);
   const [latestTotal, setLatestTotal] = useState<number>(0);
   const [logs, setLogs] = useState<TransactionItem[]>([]);
+  const [logsPage, setLogsPage] = useState(0);
+  const [logsRowsPerPage, setLogsRowsPerPage] = useState(10);
+  const [logsHasMore, setLogsHasMore] = useState(false);
+  const [logsLoading, setLogsLoading] = useState(false);
+
+  const fetchRecentRuns = useCallback(async (page = 0) => {
+    setLogsLoading(true);
+    try {
+      const offset = page * logsRowsPerPage;
+      const response = await fetch(
+        `/api/payroll/runs?limit=${logsRowsPerPage}&offset=${offset}`,
+      );
+      if (response.status === 401) {
+        router.push("/login");
+        return;
+      }
+
+      const payload = await parseJsonSafely<PayrollRunsResponse>(response);
+      if (!response.ok || !payload) {
+        return;
+      }
+
+      const runs = payload.runs ?? [];
+      setLogs(runs);
+      setLogsHasMore(Boolean(payload.pagination?.hasMore));
+
+      if (page === 0 && runs.length > 0) {
+        setLatestTotal(runs[0].destinationAmount);
+        setLatestSplits(runs[0].splits ?? []);
+      }
+
+      if (page === 0 && runs.length === 0) {
+        setLatestTotal(0);
+        setLatestSplits([]);
+      }
+    } catch {
+      // non-critical
+    } finally {
+      setLogsLoading(false);
+    }
+  }, [logsRowsPerPage, router]);
 
   const fetchEmployees = useCallback(async () => {
     try {
@@ -71,6 +127,14 @@ export default function DashboardPage() {
   useEffect(() => {
     void fetchEmployees();
   }, [fetchEmployees]);
+
+  useEffect(() => {
+    void fetchRecentRuns(logsPage);
+  }, [fetchRecentRuns, logsPage]);
+
+  useEffect(() => {
+    setLogsPage(0);
+  }, [logsRowsPerPage]);
 
   const selectedEmployee = employees.find((e) => e.id === selectedEmployeeId);
 
@@ -101,7 +165,8 @@ export default function DashboardPage() {
 
       setLatestSplits(payload.payrollRun.splits);
       setLatestTotal(payload.payrollRun.destinationAmount);
-      setLogs((previous) => [payload.payrollRun, ...previous].slice(0, 10));
+      setLogsPage(0);
+      await fetchRecentRuns(0);
     } catch (runError) {
       setError(
         runError instanceof Error ? runError.message : "Unable to run payroll",
@@ -270,7 +335,51 @@ export default function DashboardPage() {
           total={latestTotal}
           currency="KES"
         />
-        <TransactionLog logs={logs} />
+        <TransactionLog logs={logs} maxHeightClassName="max-h-[28rem]" />
+
+        <Card className="border-border/70 bg-card/95">
+          <CardContent className="grid gap-3 p-4 sm:flex sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2">
+              <Label htmlFor="logs-rows" className="text-sm text-muted-foreground">
+                Rows per page
+              </Label>
+              <select
+                id="logs-rows"
+                value={logsRowsPerPage}
+                onChange={(event) => setLogsRowsPerPage(Number(event.target.value))}
+                className="flex h-8 rounded-md border border-input bg-transparent px-2 text-sm"
+                disabled={logsLoading}
+              >
+                {rowsPerPageOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="text-sm text-muted-foreground">
+              {logsLoading ? "Loading…" : `Page ${logsPage + 1}`}
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setLogsPage((page) => Math.max(0, page - 1))}
+                disabled={logsLoading || logsPage === 0}
+              >
+                Previous
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setLogsPage((page) => page + 1)}
+                disabled={logsLoading || !logsHasMore}
+              >
+                Next
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </main>
   );
