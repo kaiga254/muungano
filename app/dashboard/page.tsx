@@ -7,12 +7,14 @@ import SplitDisplay from "@/components/SplitDisplay";
 import TransactionLog, {
   type TransactionItem,
 } from "@/components/TransactionLog";
+import PayrollQuoteDialog from "@/components/PayrollQuoteDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import type { SalarySplit } from "@/services/payrollService";
 import type { Employee } from "@/services/employeeService";
+import type { PayrollQuote } from "@/services/quoteService";
 
 type RunPayrollResponse = {
   payrollRun: TransactionItem & {
@@ -52,7 +54,9 @@ async function parseJsonSafely<T>(response: Response): Promise<T | null> {
 export default function DashboardPage() {
   const router = useRouter();
   const rowsPerPageOptions = [10, 20, 50];
-  const [loading, setLoading] = useState(false);
+  const [quoteLoading, setQuoteLoading] = useState(false);
+  const [approving, setApproving] = useState(false);
+  const [pendingQuote, setPendingQuote] = useState<PayrollQuote | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
@@ -141,31 +145,52 @@ export default function DashboardPage() {
 
   const selectedEmployee = employees.find((e) => e.id === selectedEmployeeId);
 
-  const runPayroll = async () => {
+  /** Step 1 – fetch a transparency quote; opens the confirmation dialog */
+  const requestQuote = async () => {
     if (!selectedEmployeeId) return;
-    setLoading(true);
+    setQuoteLoading(true);
     setError(null);
-
     try {
-      const response = await fetch("/api/payroll/run", {
+      const response = await fetch("/api/payroll/quote", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ employeeId: selectedEmployeeId }),
       });
+      const payload = await parseJsonSafely<{ quote?: PayrollQuote; error?: string }>(response);
+      if (!response.ok || !payload?.quote) {
+        throw new Error(payload?.error ?? "Failed to generate quote");
+      }
+      setPendingQuote(payload.quote);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to generate quote");
+    } finally {
+      setQuoteLoading(false);
+    }
+  };
 
+  /** Step 2 – admin approved the quote; execute the payroll run */
+  const handleApproveQuote = async () => {
+    if (!pendingQuote) return;
+    setApproving(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/payroll/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ quoteId: pendingQuote.id }),
+      });
       const payload = await parseJsonSafely<RunPayrollResponse>(response);
       if (!payload) {
         throw new Error(
           `Payroll API returned an empty or invalid response (${response.status})`,
         );
       }
-
       if (!response.ok || !payload.payrollRun) {
         throw new Error(
           payload.details || payload.error || "Payroll execution failed",
         );
       }
-
+      setPendingQuote(null);
       setLatestSplits(payload.payrollRun.splits);
       setLatestTotal(payload.payrollRun.destinationAmount);
       setLogsPage(0);
@@ -174,9 +199,20 @@ export default function DashboardPage() {
       setError(
         runError instanceof Error ? runError.message : "Unable to run payroll",
       );
+      setPendingQuote(null);
     } finally {
-      setLoading(false);
+      setApproving(false);
     }
+  };
+
+  /** Admin cancelled / rejected the quote */
+  const handleRejectQuote = () => {
+    if (!pendingQuote) return;
+    // Fire-and-forget reject (marks quote REJECTED in DB)
+    void fetch(`/api/payroll/quote?id=${pendingQuote.id}`, {
+      method: "DELETE",
+    });
+    setPendingQuote(null);
   };
 
   return (
@@ -312,11 +348,11 @@ export default function DashboardPage() {
                 ) : null}
 
                 <Button
-                  onClick={() => void runPayroll()}
-                  disabled={loading || !selectedEmployeeId}
+                  onClick={() => void requestQuote()}
+                  disabled={quoteLoading || approving || !selectedEmployeeId}
                   className="w-full sm:w-fit"
                 >
-                  {loading ? "Running…" : "Run Payroll"}
+                  {quoteLoading ? "Getting quote…" : "Get Quote & Run Payroll"}
                 </Button>
               </div>
             )}
@@ -331,6 +367,14 @@ export default function DashboardPage() {
           </Card>
         ) : null}
       </div>
+
+      <PayrollQuoteDialog
+        quote={pendingQuote}
+        open={!!pendingQuote}
+        approving={approving}
+        onApprove={() => void handleApproveQuote()}
+        onReject={handleRejectQuote}
+      />
 
       <div className="grid content-start gap-6">
         <SplitDisplay

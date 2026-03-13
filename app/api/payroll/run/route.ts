@@ -8,11 +8,14 @@ import { distributeSalary } from "@/services/distributionService";
 import { logPayrollRun } from "@/services/walletService";
 import { resolveSession } from "@/services/authService";
 import { getEmployee } from "@/services/employeeService";
+import { approvePayrollQuote, getPayrollQuote } from "@/services/quoteService";
 
 type RunPayrollRequest = {
-	// Option A: supply employee id (preferred – uses stored profile)
+	// ---- Preferred: supply a pre-approved quote id ----
+	quoteId?: string;
+	// ---- Legacy Option A: supply employee id ----
 	employeeId?: string;
-	// Option B: ad-hoc fields (backward-compat with demo flow)
+	// ---- Legacy Option B: ad-hoc fields ----
 	employeeName?: string;
 	salaryAmount?: number;
 	destinationPointer?: string;
@@ -32,9 +35,29 @@ export async function POST(request: Request) {
 		let destinationPointer: string;
 		let employeeId: string | undefined;
 		let splitRules;
+		let rafikiQuoteId: string | undefined; // from pre-generated quote
 
-		if (body.employeeId && session) {
-			// --- Employee profile-driven flow ---
+		if (body.quoteId && session) {
+			// ---- Quote-driven flow (transparency gate) ----
+			const stored = await getPayrollQuote(body.quoteId, session.companyId);
+			if (!stored) {
+				return NextResponse.json(
+					{ error: "Quote not found." },
+					{ status: 404 },
+				);
+			}
+
+			// Approve (validates TTL, idempotency, status)
+			await approvePayrollQuote(body.quoteId, session.companyId);
+
+			employeeId = stored.employeeId;
+			employeeName = stored.employeeName;
+			salaryAmount = stored.sourceAmount;
+			destinationPointer = stored.destinationPointer;
+			splitRules = stored.splits; // already calculated at quote time
+			rafikiQuoteId = stored.rafikiQuoteId;
+		} else if (body.employeeId && session) {
+			// ---- Employee profile-driven flow ---
 			const employee = await getEmployee(body.employeeId, session.companyId);
 			if (!employee) {
 				return NextResponse.json(
@@ -60,7 +83,7 @@ export async function POST(request: Request) {
 				return NextResponse.json(
 					{
 						error:
-							"Provide employeeId (preferred) or employeeName, salaryAmount, and destinationPointer.",
+							"Provide quoteId (preferred) or employeeId, or employeeName + salaryAmount + destinationPointer.",
 					},
 					{ status: 400 }
 				);
@@ -80,15 +103,28 @@ export async function POST(request: Request) {
 
 		const payrollRunId = randomUUID();
 		const destinationAmount = Number((salaryAmount * env.mwkToKesRate).toFixed(2));
-		const splits = calculateSalarySplits(destinationAmount, "KES", splitRules);
+		const splits = splitRules
+			? Array.isArray(splitRules) && "amount" in (splitRules[0] ?? {})
+				? (splitRules as ReturnType<typeof calculateSalarySplits>)
+				: calculateSalarySplits(destinationAmount, "KES", splitRules)
+			: calculateSalarySplits(destinationAmount, "KES");
 
-		const quote = await rafikiService.createQuote({
-			sourceAmount: salaryAmount,
-			sourceCurrency: "MWK",
-			destinationAmount,
-			destinationCurrency: "KES",
-			receiverWalletAddress: destinationPointer,
-		});
+		// Use the pre-created Rafiki quote when available, otherwise create a fresh one
+		const quote = rafikiQuoteId
+			? {
+					id: rafikiQuoteId,
+					estimatedDestinationAmount: destinationAmount,
+					sourceAmount: salaryAmount,
+					exchangeRate: destinationAmount / salaryAmount,
+					status: "COMPLETED" as const,
+				}
+			: await rafikiService.createQuote({
+					sourceAmount: salaryAmount,
+					sourceCurrency: "MWK",
+					destinationAmount,
+					destinationCurrency: "KES",
+					receiverWalletAddress: destinationPointer,
+				});
 
 		await rafikiService.createIncomingPayment(destinationPointer, destinationAmount, "KES");
 
@@ -108,6 +144,13 @@ export async function POST(request: Request) {
 			companyId: session?.companyId,
 			employeeId,
 			createdBy: session?.userId,
+			senderInfo: session
+				? {
+						adminName: session.fullName,
+						adminId: session.userId,
+						companyName: session.companyName,
+					}
+				: undefined,
 		});
 
 		const runRecord = {

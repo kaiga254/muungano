@@ -292,3 +292,40 @@ CREATE INDEX IF NOT EXISTS idx_insurance_transactions_created_at
 INSERT INTO insurance.accounts (account_key, owner_name, currency, balance, metadata_json)
 VALUES ('primary', 'Demo Insurance Premium Wallet', 'KES', 8000, '{"channel":"insurance"}'::jsonb)
 ON CONFLICT (account_key) DO NOTHING;
+
+-- ============================================================
+-- Payroll pre-approval quotes (transparency gate)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS payroll_quotes (
+	id UUID PRIMARY KEY,
+	company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+	employee_id UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+	generated_by UUID REFERENCES users(id),
+	employee_name TEXT NOT NULL,
+	source_amount NUMERIC(14, 2) NOT NULL,
+	source_currency VARCHAR(8) NOT NULL DEFAULT 'MWK',
+	destination_amount NUMERIC(14, 2) NOT NULL,
+	destination_currency VARCHAR(8) NOT NULL DEFAULT 'KES',
+	destination_pointer TEXT NOT NULL,
+	exchange_rate NUMERIC(14, 6) NOT NULL,
+	transaction_fee NUMERIC(14, 2) NOT NULL DEFAULT 0,
+	splits_json JSONB NOT NULL,
+	rafiki_quote_id TEXT NOT NULL,
+	pay_period TEXT,
+	status VARCHAR(16) NOT NULL DEFAULT 'PENDING'
+		CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED', 'EXPIRED')),
+	expires_at TIMESTAMPTZ NOT NULL,
+	approved_at TIMESTAMPTZ,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_payroll_quotes_company_id
+	ON payroll_quotes (company_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_payroll_quotes_employee_id
+	ON payroll_quotes (employee_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_payroll_quotes_pending_expiry
+	ON payroll_quotes (expires_at)
+	WHERE status = 'PENDING';

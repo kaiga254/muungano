@@ -5,6 +5,17 @@ import {
 	type SimulatorRail,
 } from "./simulatorLedgerService";
 
+export type SenderInfo = {
+	/** Name of the payroll admin who approved the run */
+	adminName?: string;
+	/** User ID of the admin */
+	adminId?: string;
+	/** Name of the sending company */
+	companyName?: string;
+	/** Human-readable pay period, e.g. "March 2026" */
+	payPeriod?: string;
+};
+
 export type DistributionInput = {
 	payrollRunId: string;
 	employeeName: string;
@@ -13,6 +24,8 @@ export type DistributionInput = {
 	companyId?: string;
 	employeeId?: string;
 	createdBy?: string;
+	/** Sender / initiator metadata shown on receiver ledger entries */
+	senderInfo?: SenderInfo;
 };
 
 export type DistributionEntry = {
@@ -107,6 +120,15 @@ export const distributeSalary = async (input: DistributionInput): Promise<Distri
 							splitKey: split.key,
 							splitLabel: split.label,
 							splitPercentage: split.percentage,
+							// Sender transparency fields (visible on receiver ledger)
+							sender: input.senderInfo
+								? {
+										adminName: input.senderInfo.adminName,
+										adminId: input.senderInfo.adminId,
+										companyName: input.senderInfo.companyName,
+										payPeriod: input.senderInfo.payPeriod,
+									}
+								: undefined,
 						},
 						createdBy: input.createdBy,
 					});
