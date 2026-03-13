@@ -67,7 +67,9 @@ export default function TransactionLog({
                       <Badge
                         key={`${entry.id}-${result.obligation}`}
                         variant={
-                          result.status === "SUCCESS" ? "success" : "destructive"
+                          result.status === "SUCCESS"
+                            ? "success"
+                            : "destructive"
                         }
                       >
                         {result.obligation}: {result.status}

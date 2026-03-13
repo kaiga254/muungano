@@ -64,42 +64,45 @@ export default function DashboardPage() {
   const [logsHasMore, setLogsHasMore] = useState(false);
   const [logsLoading, setLogsLoading] = useState(false);
 
-  const fetchRecentRuns = useCallback(async (page = 0) => {
-    setLogsLoading(true);
-    try {
-      const offset = page * logsRowsPerPage;
-      const response = await fetch(
-        `/api/payroll/runs?limit=${logsRowsPerPage}&offset=${offset}`,
-      );
-      if (response.status === 401) {
-        router.push("/login");
-        return;
-      }
+  const fetchRecentRuns = useCallback(
+    async (page = 0) => {
+      setLogsLoading(true);
+      try {
+        const offset = page * logsRowsPerPage;
+        const response = await fetch(
+          `/api/payroll/runs?limit=${logsRowsPerPage}&offset=${offset}`,
+        );
+        if (response.status === 401) {
+          router.push("/login");
+          return;
+        }
 
-      const payload = await parseJsonSafely<PayrollRunsResponse>(response);
-      if (!response.ok || !payload) {
-        return;
-      }
+        const payload = await parseJsonSafely<PayrollRunsResponse>(response);
+        if (!response.ok || !payload) {
+          return;
+        }
 
-      const runs = payload.runs ?? [];
-      setLogs(runs);
-      setLogsHasMore(Boolean(payload.pagination?.hasMore));
+        const runs = payload.runs ?? [];
+        setLogs(runs);
+        setLogsHasMore(Boolean(payload.pagination?.hasMore));
 
-      if (page === 0 && runs.length > 0) {
-        setLatestTotal(runs[0].destinationAmount);
-        setLatestSplits(runs[0].splits ?? []);
-      }
+        if (page === 0 && runs.length > 0) {
+          setLatestTotal(runs[0].destinationAmount);
+          setLatestSplits(runs[0].splits ?? []);
+        }
 
-      if (page === 0 && runs.length === 0) {
-        setLatestTotal(0);
-        setLatestSplits([]);
+        if (page === 0 && runs.length === 0) {
+          setLatestTotal(0);
+          setLatestSplits([]);
+        }
+      } catch {
+        // non-critical
+      } finally {
+        setLogsLoading(false);
       }
-    } catch {
-      // non-critical
-    } finally {
-      setLogsLoading(false);
-    }
-  }, [logsRowsPerPage, router]);
+    },
+    [logsRowsPerPage, router],
+  );
 
   const fetchEmployees = useCallback(async () => {
     try {
@@ -340,13 +343,18 @@ export default function DashboardPage() {
         <Card className="border-border/70 bg-card/95">
           <CardContent className="grid gap-3 p-4 sm:flex sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
-              <Label htmlFor="logs-rows" className="text-sm text-muted-foreground">
+              <Label
+                htmlFor="logs-rows"
+                className="text-sm text-muted-foreground"
+              >
                 Rows per page
               </Label>
               <select
                 id="logs-rows"
                 value={logsRowsPerPage}
-                onChange={(event) => setLogsRowsPerPage(Number(event.target.value))}
+                onChange={(event) =>
+                  setLogsRowsPerPage(Number(event.target.value))
+                }
                 className="flex h-8 rounded-md border border-input bg-transparent px-2 text-sm"
                 disabled={logsLoading}
               >
