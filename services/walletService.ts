@@ -1,10 +1,12 @@
-import { Pool } from "pg";
-import { env } from "@/config/env";
+import { query } from "@/lib/db";
 import type { DistributionEntry } from "./distributionService";
 import type { SalarySplit } from "./payrollService";
 
 export type PayrollRunRecord = {
 	id: string;
+	companyId?: string;
+	employeeId?: string;
+	createdBy?: string;
 	employeeName: string;
 	sourceAmount: number;
 	sourceCurrency: string;
@@ -19,66 +21,25 @@ export type PayrollRunRecord = {
 	createdAt: string;
 };
 
-let pool: Pool | undefined;
-const localStore: PayrollRunRecord[] = [];
-
-const getPool = (): Pool | undefined => {
-	if (!env.databaseUrl) {
-		return undefined;
-	}
-
-	if (!pool) {
-		pool = new Pool({ connectionString: env.databaseUrl });
-	}
-
-	return pool;
-};
-
 export const logPayrollRun = async (record: PayrollRunRecord): Promise<void> => {
-	localStore.unshift(record);
-	localStore.splice(50);
-
-	const dbPool = getPool();
-	if (!dbPool) {
-		return;
-	}
-
-	await dbPool.query(
-		`
-			INSERT INTO payroll_transactions (
-				id,
-				employee_name,
-				source_amount,
-				source_currency,
-				destination_amount,
-				destination_currency,
-				destination_pointer,
-				quote_id,
-				payment_id,
-				status,
-				splits_json,
-				distribution_json,
-				created_at
-			)
-			VALUES (
-				$1,
-				$2,
-				$3,
-				$4,
-				$5,
-				$6,
-				$7,
-				$8,
-				$9,
-				$10,
-				$11::jsonb,
-				$12::jsonb,
-				$13::timestamptz
-			)
-			ON CONFLICT (id) DO NOTHING
-		`,
+	await query(
+		`INSERT INTO payroll_transactions (
+			id, company_id, employee_id, created_by,
+			employee_name, source_amount, source_currency,
+			destination_amount, destination_currency, destination_pointer,
+			quote_id, payment_id, status, splits_json, distribution_json, created_at
+		) VALUES (
+			$1, $2, $3, $4,
+			$5, $6, $7,
+			$8, $9, $10,
+			$11, $12, $13, $14::jsonb, $15::jsonb, $16::timestamptz
+		)
+		ON CONFLICT (id) DO NOTHING`,
 		[
 			record.id,
+			record.companyId ?? null,
+			record.employeeId ?? null,
+			record.createdBy ?? null,
 			record.employeeName,
 			record.sourceAmount,
 			record.sourceCurrency,
@@ -95,35 +56,36 @@ export const logPayrollRun = async (record: PayrollRunRecord): Promise<void> => 
 	);
 };
 
-export const getRecentPayrollRuns = async (limit = 20): Promise<PayrollRunRecord[]> => {
-	const dbPool = getPool();
-	if (!dbPool) {
-		return localStore.slice(0, limit);
-	}
-
-	const result = await dbPool.query(
-		`
-			SELECT *
-			FROM payroll_transactions
-			ORDER BY created_at DESC
-			LIMIT $1
-		`,
-		[limit]
+export const getRecentPayrollRuns = async (
+	limit = 20,
+	companyId?: string,
+	offset = 0
+): Promise<PayrollRunRecord[]> => {
+	const rows = await query<Record<string, unknown>>(
+		companyId
+			? `SELECT * FROM payroll_transactions
+			   WHERE company_id = $1
+			   ORDER BY created_at DESC LIMIT $2 OFFSET $3`
+			: `SELECT * FROM payroll_transactions ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
+		companyId ? [companyId, limit, offset] : [limit, offset]
 	);
 
-	return result.rows.map((row) => ({
-		id: row.id,
-		employeeName: row.employee_name,
+	return rows.map((row) => ({
+		id: row.id as string,
+		companyId: (row.company_id as string) ?? undefined,
+		employeeId: (row.employee_id as string) ?? undefined,
+		createdBy: (row.created_by as string) ?? undefined,
+		employeeName: row.employee_name as string,
 		sourceAmount: Number(row.source_amount),
-		sourceCurrency: row.source_currency,
+		sourceCurrency: row.source_currency as string,
 		destinationAmount: Number(row.destination_amount),
-		destinationCurrency: row.destination_currency,
-		destinationPointer: row.destination_pointer,
-		quoteId: row.quote_id,
-		paymentId: row.payment_id,
-		status: row.status,
-		splits: row.splits_json,
-		distributionResults: row.distribution_json,
-		createdAt: row.created_at.toISOString(),
+		destinationCurrency: row.destination_currency as string,
+		destinationPointer: row.destination_pointer as string,
+		quoteId: row.quote_id as string,
+		paymentId: row.payment_id as string,
+		status: row.status as PayrollRunRecord["status"],
+		splits: row.splits_json as SalarySplit[],
+		distributionResults: row.distribution_json as DistributionEntry[],
+		createdAt: (row.created_at as Date).toISOString?.() ?? String(row.created_at),
 	}));
 };

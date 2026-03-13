@@ -1,12 +1,18 @@
 "use client";
 
-import { useState } from "react";
-import PayrollForm, { type PayrollFormValues } from "@/components/PayrollForm";
+import Link from "next/link";
+import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import SplitDisplay from "@/components/SplitDisplay";
 import TransactionLog, {
   type TransactionItem,
 } from "@/components/TransactionLog";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
 import type { SalarySplit } from "@/services/payrollService";
+import type { Employee } from "@/services/employeeService";
 
 type RunPayrollResponse = {
   payrollRun: TransactionItem & {
@@ -16,14 +22,124 @@ type RunPayrollResponse = {
   details?: string;
 };
 
+type PayrollRunsResponse = {
+  runs?: Array<
+    TransactionItem & {
+      splits: SalarySplit[];
+    }
+  >;
+  pagination?: {
+    limit: number;
+    offset: number;
+    hasMore: boolean;
+  };
+  error?: string;
+};
+
+async function parseJsonSafely<T>(response: Response): Promise<T | null> {
+  const text = await response.text();
+  if (!text) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return null;
+  }
+}
+
 export default function DashboardPage() {
+  const router = useRouter();
+  const rowsPerPageOptions = [10, 20, 50];
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
   const [latestSplits, setLatestSplits] = useState<SalarySplit[]>([]);
   const [latestTotal, setLatestTotal] = useState<number>(0);
   const [logs, setLogs] = useState<TransactionItem[]>([]);
+  const [logsPage, setLogsPage] = useState(0);
+  const [logsRowsPerPage, setLogsRowsPerPage] = useState(10);
+  const [logsHasMore, setLogsHasMore] = useState(false);
+  const [logsLoading, setLogsLoading] = useState(false);
 
-  const runPayroll = async (values: PayrollFormValues) => {
+  const fetchRecentRuns = useCallback(async (page = 0) => {
+    setLogsLoading(true);
+    try {
+      const offset = page * logsRowsPerPage;
+      const response = await fetch(
+        `/api/payroll/runs?limit=${logsRowsPerPage}&offset=${offset}`,
+      );
+      if (response.status === 401) {
+        router.push("/login");
+        return;
+      }
+
+      const payload = await parseJsonSafely<PayrollRunsResponse>(response);
+      if (!response.ok || !payload) {
+        return;
+      }
+
+      const runs = payload.runs ?? [];
+      setLogs(runs);
+      setLogsHasMore(Boolean(payload.pagination?.hasMore));
+
+      if (page === 0 && runs.length > 0) {
+        setLatestTotal(runs[0].destinationAmount);
+        setLatestSplits(runs[0].splits ?? []);
+      }
+
+      if (page === 0 && runs.length === 0) {
+        setLatestTotal(0);
+        setLatestSplits([]);
+      }
+    } catch {
+      // non-critical
+    } finally {
+      setLogsLoading(false);
+    }
+  }, [logsRowsPerPage, router]);
+
+  const fetchEmployees = useCallback(async () => {
+    try {
+      const res = await fetch("/api/employees");
+      if (res.status === 401) {
+        router.push("/login");
+        return;
+      }
+
+      const data = await parseJsonSafely<{ employees?: Employee[] }>(res);
+      if (!res.ok) {
+        return;
+      }
+
+      const active = (data?.employees ?? []).filter((e) => e.isActive);
+      setEmployees(active);
+      if (active.length > 0) {
+        setSelectedEmployeeId(active[0].id);
+      }
+    } catch {
+      // non-critical
+    }
+  }, [router]);
+
+  useEffect(() => {
+    void fetchEmployees();
+  }, [fetchEmployees]);
+
+  useEffect(() => {
+    void fetchRecentRuns(logsPage);
+  }, [fetchRecentRuns, logsPage]);
+
+  useEffect(() => {
+    setLogsPage(0);
+  }, [logsRowsPerPage]);
+
+  const selectedEmployee = employees.find((e) => e.id === selectedEmployeeId);
+
+  const runPayroll = async () => {
+    if (!selectedEmployeeId) return;
     setLoading(true);
     setError(null);
 
@@ -31,10 +147,16 @@ export default function DashboardPage() {
       const response = await fetch("/api/payroll/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(values),
+        body: JSON.stringify({ employeeId: selectedEmployeeId }),
       });
 
-      const payload = (await response.json()) as RunPayrollResponse;
+      const payload = await parseJsonSafely<RunPayrollResponse>(response);
+      if (!payload) {
+        throw new Error(
+          `Payroll API returned an empty or invalid response (${response.status})`,
+        );
+      }
+
       if (!response.ok || !payload.payrollRun) {
         throw new Error(
           payload.details || payload.error || "Payroll execution failed",
@@ -43,7 +165,8 @@ export default function DashboardPage() {
 
       setLatestSplits(payload.payrollRun.splits);
       setLatestTotal(payload.payrollRun.destinationAmount);
-      setLogs((previous) => [payload.payrollRun, ...previous].slice(0, 10));
+      setLogsPage(0);
+      await fetchRecentRuns(0);
     } catch (runError) {
       setError(
         runError instanceof Error ? runError.message : "Unable to run payroll",
@@ -54,20 +177,155 @@ export default function DashboardPage() {
   };
 
   return (
-    <main className="mx-auto grid min-h-screen w-full max-w-6xl gap-6 px-4 py-8 md:grid-cols-2">
-      <div className="grid gap-6">
-        <div>
-          <h1 className="text-3xl font-bold">Muungano Payroll Dashboard</h1>
-          <p className="mt-2 text-sm opacity-85">
-            Trigger cross-border payroll from Malawi (MWK) to Kenya (KES) via
-            Rafiki + Interledger.
-          </p>
-        </div>
-        <PayrollForm onSubmit={runPayroll} isLoading={loading} />
+    <main className="mx-auto grid min-h-screen w-full max-w-7xl gap-6 px-4 py-8 xl:grid-cols-[1.05fr_0.95fr]">
+      <div className="grid content-start gap-6">
+        <Card className="border-border/70 bg-card/95 shadow-sm">
+          <CardContent className="space-y-5 p-6">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="space-y-2">
+                <Badge
+                  variant="secondary"
+                  className="w-fit rounded-full px-3 py-1"
+                >
+                  Payroll Orchestration
+                </Badge>
+                <div>
+                  <h1 className="text-3xl font-semibold tracking-tight">
+                    Payroll Dashboard
+                  </h1>
+                  <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
+                    Select an employee and run cross-border payroll from Malawi
+                    (MWK) to Kenya (KES) through Rafiki, routing settled funds
+                    to downstream obligations.
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Link href="/employees">
+                  <Button variant="outline">Manage Employees</Button>
+                </Link>
+                <Link href="/simulators">
+                  <Button variant="outline">Simulators</Button>
+                </Link>
+              </div>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="rounded-lg border border-border/70 bg-muted/40 p-4">
+                <div className="text-sm text-muted-foreground">
+                  Latest settlement
+                </div>
+                <div className="mt-1 text-2xl font-semibold">
+                  KES {latestTotal.toLocaleString()}
+                </div>
+              </div>
+              <div className="rounded-lg border border-border/70 bg-muted/40 p-4">
+                <div className="text-sm text-muted-foreground">
+                  Recent payroll runs
+                </div>
+                <div className="mt-1 text-2xl font-semibold">{logs.length}</div>
+              </div>
+              <div className="rounded-lg border border-border/70 bg-muted/40 p-4">
+                <div className="text-sm text-muted-foreground">
+                  Active employees
+                </div>
+                <div className="mt-1 text-2xl font-semibold">
+                  {employees.length}
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Payroll runner */}
+        <Card className="border-border/70 bg-card/95 backdrop-blur-sm">
+          <CardContent className="p-6 space-y-5">
+            <div>
+              <h2 className="text-lg font-semibold">Run Payroll</h2>
+              <p className="text-sm text-muted-foreground mt-1">
+                Select an onboarded employee to trigger cross-border settlement
+                and obligation routing.
+              </p>
+            </div>
+
+            {employees.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-border/70 p-6 text-center">
+                <p className="text-muted-foreground text-sm">
+                  No active employees found.
+                </p>
+                <Link href="/employees">
+                  <Button variant="outline" className="mt-3">
+                    Onboard employees →
+                  </Button>
+                </Link>
+              </div>
+            ) : (
+              <div className="grid gap-5">
+                <div className="grid gap-2">
+                  <Label htmlFor="employee-select">Employee</Label>
+                  <select
+                    id="employee-select"
+                    value={selectedEmployeeId}
+                    onChange={(e) => setSelectedEmployeeId(e.target.value)}
+                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  >
+                    {employees.map((emp) => (
+                      <option key={emp.id} value={emp.id}>
+                        {emp.fullName}
+                        {emp.employeeNumber ? ` (${emp.employeeNumber})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {selectedEmployee ? (
+                  <div className="grid grid-cols-2 gap-3 rounded-lg border border-border/60 bg-muted/30 p-4 text-sm">
+                    <div>
+                      <div className="text-muted-foreground">Salary</div>
+                      <div className="font-medium">
+                        {selectedEmployee.salaryCurrency}{" "}
+                        {selectedEmployee.salaryAmount.toLocaleString()} / month
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-muted-foreground">Destination</div>
+                      <div className="font-medium truncate">
+                        {selectedEmployee.destinationPointer}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-muted-foreground">Department</div>
+                      <div className="font-medium">
+                        {selectedEmployee.department ?? "—"}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-muted-foreground">Split rules</div>
+                      <div className="font-medium">
+                        {selectedEmployee.splitRules.length} allocations
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
+                <Button
+                  onClick={() => void runPayroll()}
+                  disabled={loading || !selectedEmployeeId}
+                  className="w-full sm:w-fit"
+                >
+                  {loading ? "Running…" : "Run Payroll"}
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
         {error ? (
-          <p className="rounded border border-foreground/30 p-3 text-sm">
-            {error}
-          </p>
+          <Card className="border-destructive/40 bg-destructive/5">
+            <CardContent className="p-4 text-sm text-destructive">
+              {error}
+            </CardContent>
+          </Card>
         ) : null}
       </div>
 
@@ -77,7 +335,51 @@ export default function DashboardPage() {
           total={latestTotal}
           currency="KES"
         />
-        <TransactionLog logs={logs} />
+        <TransactionLog logs={logs} maxHeightClassName="max-h-[28rem]" />
+
+        <Card className="border-border/70 bg-card/95">
+          <CardContent className="grid gap-3 p-4 sm:flex sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2">
+              <Label htmlFor="logs-rows" className="text-sm text-muted-foreground">
+                Rows per page
+              </Label>
+              <select
+                id="logs-rows"
+                value={logsRowsPerPage}
+                onChange={(event) => setLogsRowsPerPage(Number(event.target.value))}
+                className="flex h-8 rounded-md border border-input bg-transparent px-2 text-sm"
+                disabled={logsLoading}
+              >
+                {rowsPerPageOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="text-sm text-muted-foreground">
+              {logsLoading ? "Loading…" : `Page ${logsPage + 1}`}
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setLogsPage((page) => Math.max(0, page - 1))}
+                disabled={logsLoading || logsPage === 0}
+              >
+                Previous
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setLogsPage((page) => page + 1)}
+                disabled={logsLoading || !logsHasMore}
+              >
+                Next
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </main>
   );

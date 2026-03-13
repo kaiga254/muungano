@@ -1,11 +1,18 @@
 import { env } from "@/config/env";
 import type { SalarySplit } from "./payrollService";
+import {
+	postLedgerTransaction,
+	type SimulatorRail,
+} from "./simulatorLedgerService";
 
 export type DistributionInput = {
 	payrollRunId: string;
 	employeeName: string;
 	currency: string;
 	splits: SalarySplit[];
+	companyId?: string;
+	employeeId?: string;
+	createdBy?: string;
 };
 
 export type DistributionEntry = {
@@ -22,6 +29,14 @@ const endpointBySplit: Record<SalarySplit["key"], string> = {
 	savings: `${env.saccoServiceUrl}/deposit`,
 	schoolFees: `${env.bankServiceUrl}/payment`,
 	insurance: `${env.insuranceServiceUrl}/premium`,
+};
+
+const railBySplit: Record<SalarySplit["key"], SimulatorRail> = {
+	wallet: "mpesa",
+	familyRemittance: "bank",
+	savings: "sacco",
+	schoolFees: "bank",
+	insurance: "insurance",
 };
 
 const postToInstitution = async (
@@ -71,6 +86,55 @@ const postToInstitution = async (
 };
 
 export const distributeSalary = async (input: DistributionInput): Promise<DistributionEntry[]> => {
+	if (input.companyId && input.employeeId) {
+		const entries = await Promise.all(
+			input.splits.map(async (split) => {
+				try {
+					const reference = `${input.payrollRunId}-${split.key}`;
+					const rail = railBySplit[split.key];
+					const transaction = await postLedgerTransaction({
+						companyId: input.companyId as string,
+						employeeId: input.employeeId as string,
+						rail,
+						direction: "credit",
+						amount: split.amount,
+						currency: input.currency,
+						reference,
+						narration: split.label,
+						metadata: {
+							payrollRunId: input.payrollRunId,
+							employeeName: input.employeeName,
+							splitKey: split.key,
+							splitLabel: split.label,
+							splitPercentage: split.percentage,
+						},
+						createdBy: input.createdBy,
+					});
+
+					return {
+						obligation: split.label,
+						endpoint: `simulator-ledger://${rail}`,
+						amount: split.amount,
+						status: "SUCCESS" as const,
+						response: transaction,
+					};
+				} catch (error) {
+					return {
+						obligation: split.label,
+						endpoint: `simulator-ledger://${railBySplit[split.key]}`,
+						amount: split.amount,
+						status: "FAILED" as const,
+						response: {
+							error: error instanceof Error ? error.message : "Failed ledger distribution",
+						},
+					};
+				}
+			})
+		);
+
+		return entries;
+	}
+
 	const calls = input.splits.map((split) => {
 		const endpoint = endpointBySplit[split.key];
 		const payload = {
