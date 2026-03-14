@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 const NAV_LINKS = [
   { href: "/dashboard", label: "Home" },
   { href: "/wallets", label: "Wallets" },
+  { href: "/transfer", label: "Transfer" },
   { href: "/send", label: "Send" },
   { href: "/deposit", label: "Deposit" },
   { href: "/history", label: "History" },
@@ -35,13 +36,14 @@ export default function AppNav() {
               variant="secondary"
               className="hidden sm:flex rounded-full px-2 py-0.5 text-xs"
             >
-                Wallet
+              Wallet
             </Badge>
           </Link>
 
           <nav className="hidden items-center gap-1 sm:flex">
             {NAV_LINKS.map((link) => {
-                const active = pathname === link.href || pathname.startsWith(link.href + "/");
+              const active =
+                pathname === link.href || pathname.startsWith(link.href + "/");
               return (
                 <Link key={link.href} href={link.href}>
                   <Button
@@ -60,9 +62,7 @@ export default function AppNav() {
         <div className="flex items-center gap-3">
           <div className="hidden text-right text-sm sm:block">
             <div className="font-medium leading-tight">{session.fullName}</div>
-            <div className="text-xs text-muted-foreground">
-                {session.phone}
-            </div>
+            <div className="text-xs text-muted-foreground">{session.phone}</div>
           </div>
           <Button variant="outline" size="sm" onClick={() => void logout()}>
             Sign out

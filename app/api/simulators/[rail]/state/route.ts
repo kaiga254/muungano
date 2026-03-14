@@ -21,8 +21,35 @@ export async function GET(_req: NextRequest, { params }: Context) {
     const res = await fetch(`${baseUrl}/state`, {
       next: { revalidate: 0 },
     });
-    const data: unknown = await res.json();
-    return NextResponse.json(data, { status: res.status });
+    const data = (await res.json()) as {
+      floatBalance?: number;
+      currency?: string;
+      recentTransactions?: unknown[];
+      transactionCount?: number;
+      float?: { balance: number; currency: string };
+    };
+
+    if (!res.ok) {
+      return NextResponse.json(data, { status: res.status });
+    }
+
+    const normalized = {
+      float:
+        data.float ??
+        (typeof data.floatBalance === "number"
+          ? {
+              balance: data.floatBalance,
+              currency: data.currency ?? (rail === "bank" ? "KES" : "KES"),
+            }
+          : undefined),
+      transactionCount:
+        data.transactionCount ??
+        (Array.isArray(data.recentTransactions)
+          ? data.recentTransactions.length
+          : undefined),
+    };
+
+    return NextResponse.json(normalized, { status: 200 });
   } catch {
     return NextResponse.json(
       { error: "Simulator unreachable." },

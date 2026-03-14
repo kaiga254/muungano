@@ -44,7 +44,7 @@ export async function POST(request: Request) {
 		const body = await request.json();
 		const data = CreateWithdrawalSchema.parse(body);
 		const destinationDetails = Object.fromEntries(
-			Object.entries(data.destinationDetails).map(([key, value]) => [
+			Object.entries(data.destinationDetails ?? {}).map(([key, value]) => [
 				key,
 				String(value),
 			])
@@ -53,6 +53,7 @@ export async function POST(request: Request) {
 		const result = await initiateWithdrawal({
 			userId: session.userId,
 			walletId: data.walletId,
+			fundingAccountId: data.fundingAccountId,
 			amount: BigInt(data.amount),
 			destinationType: data.destinationType,
 			destinationDetails,

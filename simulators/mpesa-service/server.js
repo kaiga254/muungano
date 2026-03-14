@@ -46,7 +46,7 @@ app.get("/state", (_req, res) => {
 });
 
 /** GET /transactions */
-app.get("/transactions", (_req, res) => {
+app.get("/transactions", (req, res) => {
   const limit = Math.min(Number(req.query.limit ?? 50), 200);
   res.json({ transactions: transactions.slice(0, limit) });
 });
@@ -90,7 +90,7 @@ app.post("/deposit", async (req, res) => {
       const resp = await fetch(callbackUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ depositId, confirmedAmount: amountNum }),
+        body: JSON.stringify({ depositId, reference: txn.reference, confirmedAmount: amountNum }),
       });
       const data = await resp.json();
       txn.status = resp.ok ? "confirmed" : "failed";
@@ -146,9 +146,3 @@ app.post("/withdraw", (req, res) => {
 app.listen(PORT, () => {
   console.log(`[muungano-mpesa-simulator] listening on port ${PORT}`);
 });
-
-
-const app = express();
-const port = process.env.PORT || 4101;
-const accountKey = "primary";
-const seedBalance = 25000;

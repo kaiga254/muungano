@@ -7,14 +7,16 @@ import { RateLimitError } from "@/src/shared/errors";
 const DAILY_TRANSFER_LIMIT_USD_CENTS = BigInt(200000); // $2,000.00
 const SINGLE_TRANSFER_LIMIT_USD_CENTS = BigInt(50000);  // $500.00
 
-// Approximate USD-cent value for a given currency amount
-const toUsdCents = (amount: bigint, currency: Currency): bigint => {
+// Approximate USD-cent value for a given currency amount.
+// `amount` is already in minor units (scale 2), and rates are defined in major units.
+// Therefore: usd_cents = source_minor * usd_per_major (no extra *100).
+export const toUsdCents = (amount: bigint, currency: Currency): bigint => {
 	const rates: Record<Currency, number> = {
 		KES: env.kes_usd_rate,
 		MWK: env.mwk_usd_rate,
 		USD: 1,
 	};
-	return BigInt(Math.round(Number(amount) * rates[currency] * 100));
+	return BigInt(Math.round(Number(amount) * rates[currency]));
 };
 
 export const checkAndUpdateRateLimit = async (

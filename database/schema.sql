@@ -138,6 +138,50 @@ CREATE TABLE IF NOT EXISTS wallets (
 CREATE INDEX IF NOT EXISTS wallets_user_id_idx ON wallets(user_id);
 
 -- =============================================================
+-- External Funding Accounts  —  user-owned source/destination rails
+-- =============================================================
+
+CREATE TABLE IF NOT EXISTS external_funding_accounts (
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id            UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  account_key        TEXT NOT NULL,
+  type               deposit_method NOT NULL,
+  provider_name      TEXT NOT NULL,
+  account_name       TEXT NOT NULL,
+  account_identifier TEXT NOT NULL,
+  country            TEXT NOT NULL,
+  currency           supported_currency NOT NULL,
+  metadata_json      JSONB NOT NULL DEFAULT '{}',
+  is_active          BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (user_id, account_key)
+);
+
+CREATE INDEX IF NOT EXISTS external_funding_accounts_user_id_idx
+  ON external_funding_accounts(user_id);
+
+CREATE INDEX IF NOT EXISTS external_funding_accounts_currency_idx
+  ON external_funding_accounts(currency);
+
+CREATE TABLE IF NOT EXISTS external_funding_account_transactions (
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  funding_account_id UUID NOT NULL REFERENCES external_funding_accounts(id) ON DELETE CASCADE,
+  user_id            UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  direction          TEXT NOT NULL CHECK (direction IN ('credit', 'debit')),
+  amount             BIGINT NOT NULL CHECK (amount > 0),
+  currency           supported_currency NOT NULL,
+  reference          TEXT NOT NULL UNIQUE,
+  narration          TEXT,
+  balance_before     BIGINT NOT NULL,
+  balance_after      BIGINT NOT NULL,
+  metadata_json      JSONB NOT NULL DEFAULT '{}',
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS external_funding_account_txns_account_idx
+  ON external_funding_account_transactions(funding_account_id, created_at DESC);
+
+-- =============================================================
 -- Ledger Entries  —  canonical balance source
 -- All amounts stored as integers (smallest currency unit, e.g. cents)
 -- =============================================================
@@ -165,6 +209,7 @@ CREATE TABLE IF NOT EXISTS deposits (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   wallet_id       UUID NOT NULL REFERENCES wallets(id) ON DELETE RESTRICT,
+  funding_account_id UUID REFERENCES external_funding_accounts(id) ON DELETE SET NULL,
   amount          BIGINT NOT NULL CHECK (amount > 0),
   currency        supported_currency NOT NULL,
   method          deposit_method NOT NULL,
@@ -178,6 +223,10 @@ CREATE TABLE IF NOT EXISTS deposits (
 
 CREATE INDEX IF NOT EXISTS deposits_user_id_idx ON deposits(user_id);
 CREATE INDEX IF NOT EXISTS deposits_wallet_id_idx ON deposits(wallet_id);
+CREATE INDEX IF NOT EXISTS deposits_funding_account_id_idx ON deposits(funding_account_id);
+
+ALTER TABLE deposits
+  ADD COLUMN IF NOT EXISTS funding_account_id UUID REFERENCES external_funding_accounts(id) ON DELETE SET NULL;
 
 -- =============================================================
 -- Withdrawals
@@ -187,6 +236,7 @@ CREATE TABLE IF NOT EXISTS withdrawals (
   id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id                  UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   wallet_id                UUID NOT NULL REFERENCES wallets(id) ON DELETE RESTRICT,
+  funding_account_id       UUID REFERENCES external_funding_accounts(id) ON DELETE SET NULL,
   destination_type         deposit_method NOT NULL,
   destination_details_json JSONB NOT NULL DEFAULT '{}',
   amount                   BIGINT NOT NULL CHECK (amount > 0),
@@ -199,6 +249,10 @@ CREATE TABLE IF NOT EXISTS withdrawals (
 );
 
 CREATE INDEX IF NOT EXISTS withdrawals_user_id_idx ON withdrawals(user_id);
+CREATE INDEX IF NOT EXISTS withdrawals_funding_account_id_idx ON withdrawals(funding_account_id);
+
+ALTER TABLE withdrawals
+  ADD COLUMN IF NOT EXISTS funding_account_id UUID REFERENCES external_funding_accounts(id) ON DELETE SET NULL;
 
 -- =============================================================
 -- Quotes  —  30-second TTL pre-payment transparency
@@ -207,12 +261,14 @@ CREATE INDEX IF NOT EXISTS withdrawals_user_id_idx ON withdrawals(user_id);
 CREATE TABLE IF NOT EXISTS quotes (
   id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id              UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  source_wallet_id     UUID REFERENCES wallets(id) ON DELETE RESTRICT,
   source_currency      supported_currency NOT NULL,
   destination_currency supported_currency NOT NULL,
   source_amount        BIGINT NOT NULL CHECK (source_amount > 0),
   destination_amount   BIGINT NOT NULL CHECK (destination_amount > 0),
   exchange_rate        NUMERIC(20, 8) NOT NULL,
   fees_json            JSONB NOT NULL DEFAULT '{}',
+  metadata_json        JSONB NOT NULL DEFAULT '{}',
   rafiki_quote_id      TEXT,
   expires_at           TIMESTAMPTZ NOT NULL,
   status               quote_status NOT NULL DEFAULT 'pending',
@@ -220,6 +276,14 @@ CREATE TABLE IF NOT EXISTS quotes (
 );
 
 CREATE INDEX IF NOT EXISTS quotes_user_id_idx ON quotes(user_id);
+
+ALTER TABLE quotes
+  ADD COLUMN IF NOT EXISTS source_wallet_id UUID REFERENCES wallets(id) ON DELETE RESTRICT;
+
+ALTER TABLE quotes
+  ADD COLUMN IF NOT EXISTS metadata_json JSONB NOT NULL DEFAULT '{}';
+
+CREATE INDEX IF NOT EXISTS quotes_source_wallet_id_idx ON quotes(source_wallet_id);
 
 -- =============================================================
 -- Payments  —  Cross-border ILP payments

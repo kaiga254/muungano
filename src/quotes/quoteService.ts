@@ -9,6 +9,7 @@ import { QuoteExpiredError, QuoteUsedError, NotFoundError } from "@/src/shared/e
 export type Quote = {
 	id: string;
 	userId: string;
+	sourceWalletId: string | null;
 	sourceCurrency: Currency;
 	destinationCurrency: Currency;
 	sourceAmount: number;
@@ -22,14 +23,17 @@ export type Quote = {
 	rafikiQuoteId: string | null;
 	expiresAt: string;
 	status: "pending" | "used" | "expired" | "rejected";
+	metadata: Record<string, unknown>;
 	createdAt: string;
 };
 
 export const createQuote = async (input: {
 	userId: string;
+	sourceWalletId: string;
 	sourceCurrency: Currency;
 	destinationCurrency: Currency;
 	sourceAmount: bigint;
+	metadata?: Record<string, unknown>;
 }): Promise<Quote> => {
 	const { exchangeRate, destinationAmount, connectorFee, muunganoFee, totalFee } =
 		calculateFxQuote(input.sourceCurrency, input.destinationCurrency, input.sourceAmount);
@@ -49,6 +53,7 @@ export const createQuote = async (input: {
 	const rows = await query<{
 		id: string;
 		user_id: string;
+		source_wallet_id: string | null;
 		source_currency: Currency;
 		destination_currency: Currency;
 		source_amount: string;
@@ -58,17 +63,19 @@ export const createQuote = async (input: {
 		rafiki_quote_id: string | null;
 		expires_at: string;
 		status: "pending" | "used" | "expired" | "rejected";
+		metadata_json: Record<string, unknown>;
 		created_at: string;
 	}>(
 		`INSERT INTO quotes
-			(id, user_id, source_currency, destination_currency,
+			(id, user_id, source_wallet_id, source_currency, destination_currency,
 			 source_amount, destination_amount, exchange_rate,
-			 fees_json, rafiki_quote_id, expires_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+			 fees_json, rafiki_quote_id, expires_at, metadata_json)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		 RETURNING *`,
 		[
 			id,
 			input.userId,
+			input.sourceWalletId,
 			input.sourceCurrency,
 			input.destinationCurrency,
 			String(input.sourceAmount),
@@ -77,6 +84,7 @@ export const createQuote = async (input: {
 			JSON.stringify(feesJson),
 			rafikiQuoteId,
 			expiresAt.toISOString(),
+			JSON.stringify(input.metadata ?? {}),
 		]
 	);
 
@@ -123,6 +131,7 @@ export const expireStaleQuotes = async (): Promise<void> => {
 type QuoteRow = {
 	id: string;
 	user_id: string;
+	source_wallet_id: string | null;
 	source_currency: Currency;
 	destination_currency: Currency;
 	source_amount: string;
@@ -132,6 +141,7 @@ type QuoteRow = {
 	rafiki_quote_id: string | null;
 	expires_at: string;
 	status: "pending" | "used" | "expired" | "rejected";
+	metadata_json: Record<string, unknown>;
 	created_at: string;
 };
 
@@ -139,6 +149,7 @@ function mapQuote(row: QuoteRow): Quote {
 	return {
 		id: row.id,
 		userId: row.user_id,
+		sourceWalletId: row.source_wallet_id,
 		sourceCurrency: row.source_currency,
 		destinationCurrency: row.destination_currency,
 		sourceAmount: parseInt(row.source_amount, 10),
@@ -148,6 +159,7 @@ function mapQuote(row: QuoteRow): Quote {
 		rafikiQuoteId: row.rafiki_quote_id,
 		expiresAt: row.expires_at,
 		status: row.status,
+		metadata: row.metadata_json,
 		createdAt: row.created_at,
 	};
 }

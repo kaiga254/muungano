@@ -12,6 +12,8 @@ export type InternalTransfer = {
 	userId: string;
 	sourceWalletId: string;
 	destWalletId: string;
+	sourceCurrency: Currency;
+	destCurrency: Currency;
 	sourceAmount: number;
 	destAmount: number;
 	fxRate: number;
@@ -135,9 +137,14 @@ export const getTransfersByUser = async (
 	offset = 0
 ): Promise<InternalTransfer[]> => {
 	const rows = await query<TransferRow>(
-		`SELECT * FROM internal_transfers
-		 WHERE user_id = $1
-		 ORDER BY created_at DESC
+		`SELECT t.*,
+		        sw.currency AS source_currency,
+		        dw.currency AS dest_currency
+		 FROM internal_transfers t
+		 JOIN wallets sw ON sw.id = t.source_wallet_id
+		 JOIN wallets dw ON dw.id = t.dest_wallet_id
+		 WHERE t.user_id = $1
+		 ORDER BY t.created_at DESC
 		 LIMIT $2 OFFSET $3`,
 		[userId, limit, offset]
 	);
@@ -146,7 +153,13 @@ export const getTransfersByUser = async (
 
 export const getTransferById = async (id: string): Promise<InternalTransfer> => {
 	const rows = await query<TransferRow>(
-		"SELECT * FROM internal_transfers WHERE id = $1",
+		`SELECT t.*,
+		        sw.currency AS source_currency,
+		        dw.currency AS dest_currency
+		 FROM internal_transfers t
+		 JOIN wallets sw ON sw.id = t.source_wallet_id
+		 JOIN wallets dw ON dw.id = t.dest_wallet_id
+		 WHERE t.id = $1`,
 		[id]
 	);
 	if (!rows[0]) throw new NotFoundError("Transfer");
@@ -160,6 +173,8 @@ type TransferRow = {
 	user_id: string;
 	source_wallet_id: string;
 	dest_wallet_id: string;
+	source_currency: Currency;
+	dest_currency: Currency;
 	source_amount: string;
 	dest_amount: string;
 	fx_rate: string;
@@ -174,6 +189,8 @@ function mapTransfer(row: TransferRow): InternalTransfer {
 		userId: row.user_id,
 		sourceWalletId: row.source_wallet_id,
 		destWalletId: row.dest_wallet_id,
+		sourceCurrency: row.source_currency,
+		destCurrency: row.dest_currency,
 		sourceAmount: parseInt(row.source_amount, 10),
 		destAmount: parseInt(row.dest_amount, 10),
 		fxRate: parseFloat(row.fx_rate),

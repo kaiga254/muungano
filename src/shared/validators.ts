@@ -57,7 +57,6 @@ export const KycSubmitSchema = z.object({
 
 export const CreateWalletSchema = z.object({
 	currency,
-	pin: pinCode,
 });
 
 // =============================================================
@@ -66,8 +65,10 @@ export const CreateWalletSchema = z.object({
 
 export const CreateDepositSchema = z.object({
 	walletId: z.string().uuid(),
+	fundingAccountId: z.string().uuid().optional(),
 	amount: positiveAmount,
 	method: z.enum(["bank", "mobile_money"]),
+	simulatorPin: pinCode.optional(),
 	idempotencyKey: z.string().max(128).optional(),
 });
 
@@ -81,13 +82,51 @@ export const ConfirmDepositSchema = z.object({
 // =============================================================
 
 export const CreateQuoteSchema = z.object({
+	sourceWalletId: z.string().uuid(),
 	sourceCurrency: currency,
-	destinationCurrency: currency,
+	destinationCurrency: currency.optional(),
 	sourceAmount: positiveAmount,
-})
-	.refine((d) => d.sourceCurrency !== d.destinationCurrency, {
-		message: "Source and destination currencies must be different.",
-	});
+	recipientType: z.enum(["bank", "mobile_money"]),
+	recipientMode: z.enum(["manual", "linked_account"]),
+	linkedFundingAccountId: z.string().uuid().optional(),
+	recipientDetails: z
+		.object({
+			bankName: z.string().min(2).optional(),
+			accountName: z.string().min(2).optional(),
+			accountNumber: z.string().min(4).optional(),
+			recipientNumber: z.string().min(4).optional(),
+			recipientAccount: z.string().min(4).optional(),
+		})
+		.optional(),
+}).superRefine((data, ctx) => {
+	if (data.recipientMode === "linked_account" && !data.linkedFundingAccountId) {
+		ctx.addIssue({
+			code: z.ZodIssueCode.custom,
+			message: "Select a linked account for linked recipient mode.",
+			path: ["linkedFundingAccountId"],
+		});
+	}
+
+	if (data.recipientMode === "manual") {
+		if (data.recipientType === "bank") {
+			if (!data.recipientDetails?.bankName || !data.recipientDetails?.accountName || !data.recipientDetails?.accountNumber) {
+				ctx.addIssue({
+					code: z.ZodIssueCode.custom,
+					message: "Bank name, account name, and account number are required.",
+					path: ["recipientDetails"],
+				});
+			}
+		} else {
+			if (!data.recipientDetails?.recipientNumber && !data.recipientDetails?.recipientAccount) {
+				ctx.addIssue({
+					code: z.ZodIssueCode.custom,
+					message: "Recipient number/account is required for mobile transfer.",
+					path: ["recipientDetails"],
+				});
+			}
+		}
+	}
+});
 
 // =============================================================
 // Payment validators
@@ -96,14 +135,22 @@ export const CreateQuoteSchema = z.object({
 export const SendPaymentSchema = z.object({
 	quoteId: z.string().uuid(),
 	pin: pinCode,
-	receiverIdentifier: z.string().min(1, "Receiver identifier is required."),
-	receiverType: z.enum(["phone", "ilp_address", "wallet_id"]),
 	idempotencyKey: z.string().max(128).optional(),
 });
 
 // =============================================================
 // Internal transfer validators
 // =============================================================
+
+/** Quote request for an internal wallet-to-wallet FX transfer. */
+export const InternalTransferQuoteSchema = z.object({
+	sourceWalletId: z.string().uuid("Invalid source wallet ID."),
+	destWalletId: z.string().uuid("Invalid destination wallet ID."),
+	sourceAmount: positiveAmount,
+}).refine((d) => d.sourceWalletId !== d.destWalletId, {
+	message: "Source and destination wallets must be different.",
+	path: ["destWalletId"],
+});
 
 export const InternalTransferSchema = z.object({
 	quoteId: z.string().uuid(),
@@ -119,9 +166,10 @@ export const InternalTransferSchema = z.object({
 
 export const CreateWithdrawalSchema = z.object({
 	walletId: z.string().uuid(),
+	fundingAccountId: z.string().uuid().optional(),
 	amount: positiveAmount,
 	destinationType: z.enum(["bank", "mobile_money"]),
-	destinationDetails: z.record(z.string(), z.string()),
+	destinationDetails: z.record(z.string(), z.string()).optional(),
 	pin: pinCode,
 	idempotencyKey: z.string().max(128).optional(),
 });
@@ -144,6 +192,7 @@ export type CreateWalletInput = z.infer<typeof CreateWalletSchema>;
 export type CreateDepositInput = z.infer<typeof CreateDepositSchema>;
 export type ConfirmDepositInput = z.infer<typeof ConfirmDepositSchema>;
 export type CreateQuoteInput = z.infer<typeof CreateQuoteSchema>;
+export type InternalTransferQuoteInput = z.infer<typeof InternalTransferQuoteSchema>;
 export type SendPaymentInput = z.infer<typeof SendPaymentSchema>;
 export type InternalTransferInput = z.infer<typeof InternalTransferSchema>;
 export type CreateWithdrawalInput = z.infer<typeof CreateWithdrawalSchema>;

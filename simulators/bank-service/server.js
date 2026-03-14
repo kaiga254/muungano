@@ -90,7 +90,7 @@ app.post("/deposit", async (req, res) => {
       const resp = await fetch(callbackUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ depositId, confirmedAmount: amountNum }),
+        body: JSON.stringify({ depositId, reference: txn.reference, confirmedAmount: amountNum }),
       });
       const data = await resp.json();
       txn.status = resp.ok ? "confirmed" : "failed";

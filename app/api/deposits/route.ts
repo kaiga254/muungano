@@ -47,12 +47,23 @@ export async function POST(request: Request) {
 		const result = await initiateDeposit({
 			userId: session.userId,
 			walletId: data.walletId,
+			fundingAccountId: data.fundingAccountId,
 			amount: BigInt(data.amount),
 			method: data.method,
+			simulatorPin: data.simulatorPin,
 			idempotencyKey: data.idempotencyKey,
 		});
 
-		return NextResponse.json(result, { status: 201 });
+		return NextResponse.json(
+			{
+				deposit: result,
+				instructions: {
+					reference: result.instructions.reference,
+					...result.instructions.details,
+				},
+			},
+			{ status: 201 }
+		);
 	} catch (error) {
 		if (error instanceof ZodError) {
 			return NextResponse.json(

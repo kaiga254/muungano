@@ -104,7 +104,9 @@ export default function LoginPage() {
       <Card className="w-full border-border/70 bg-card/95 shadow-xl">
         <CardHeader className="space-y-1">
           <CardTitle className="text-2xl">Sign in</CardTitle>
-          <CardDescription>Enter your HR admin credentials.</CardDescription>
+          <CardDescription>
+            Enter your Muungano Log In credentials.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <Suspense

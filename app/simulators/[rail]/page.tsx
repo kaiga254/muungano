@@ -17,15 +17,16 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-type Rail = "mpesa" | "bank" | "sacco" | "insurance";
+type Rail = "mpesa" | "bank";
 
 type SimulatorAccount = {
   id: string;
-  employeeId: string;
-  employeeName: string;
+  providerName: string;
+  accountName: string;
   accountRef: string;
   currency: string;
   currentBalance: number;
+  country: string;
   updatedAt: string;
 };
 
@@ -44,17 +45,18 @@ type SimulatorTransaction = {
 const railLabels: Record<Rail, string> = {
   mpesa: "M-Pesa Simulator",
   bank: "Bank Simulator",
-  sacco: "SACCO Simulator",
-  insurance: "Insurance Simulator",
 };
 
-const rails: Rail[] = ["mpesa", "bank", "sacco", "insurance"];
+const rails: Rail[] = ["mpesa", "bank"];
 
 const simulatorApiBasePath =
   process.env.NEXT_PUBLIC_SIMULATOR_API_BASE_PATH ?? "/api/simulators";
 
 const money = (amount: number, currency: string) =>
-  `${currency} ${amount.toLocaleString()}`;
+  `${currency} ${(amount / 100).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
 
 export default function RailSimulatorPage() {
   const params = useParams<{ rail: string }>();
@@ -160,7 +162,7 @@ export default function RailSimulatorPage() {
 
   const postTransaction = async () => {
     if (!selectedAccount) {
-      setError("Select an employee account first.");
+      setError("Select an account first.");
       return;
     }
 
@@ -177,9 +179,9 @@ export default function RailSimulatorPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          employeeId: selectedAccount.employeeId,
+          accountId: selectedAccount.id,
           direction,
-          amount: parsedAmount,
+          amount: Math.round(parsedAmount * 100),
           currency: selectedAccount.currency,
           narration: narration || `${direction.toUpperCase()} ${rail} account`,
         }),
@@ -195,7 +197,7 @@ export default function RailSimulatorPage() {
       setAmount("1000");
       setNarration("");
       await fetchAccounts();
-      await fetchTransactions(selectedAccount.id);
+      await fetchTransactions(selectedAccountId);
     } catch (postError) {
       setError(
         postError instanceof Error
@@ -240,15 +242,14 @@ export default function RailSimulatorPage() {
 
         <Card className="border-border/70 bg-card/95">
           <CardHeader>
-            <CardTitle>Employee sub-accounts</CardTitle>
+            <CardTitle>Funding accounts</CardTitle>
           </CardHeader>
           <CardContent>
             {loadingAccounts ? (
               <p className="text-sm text-muted-foreground">Loading accounts…</p>
             ) : accounts.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                No accounts yet. Run payroll for employees to auto-create {rail}{" "}
-                sub-accounts.
+                No accounts available for this rail yet.
               </p>
             ) : (
               <ul className="grid gap-2">
@@ -265,10 +266,10 @@ export default function RailSimulatorPage() {
                     >
                       <div className="text-left">
                         <div className="font-medium">
-                          {account.employeeName}
+                          {account.providerName}
                         </div>
                         <div className="text-xs text-muted-foreground">
-                          {account.accountRef}
+                          {account.accountName} · {account.accountRef}
                         </div>
                       </div>
                       <div className="text-right text-sm">
@@ -294,7 +295,7 @@ export default function RailSimulatorPage() {
             {selectedAccount ? (
               <>
                 <div className="rounded-lg border border-border/70 bg-muted/30 p-3 text-sm">
-                  <strong>{selectedAccount.employeeName}</strong> ·{" "}
+                  <strong>{selectedAccount.providerName}</strong> ·{" "}
                   {money(
                     selectedAccount.currentBalance,
                     selectedAccount.currency,
@@ -315,7 +316,7 @@ export default function RailSimulatorPage() {
                     </select>
                   </div>
                   <div className="grid gap-2">
-                    <Label>Amount</Label>
+                    <Label>Amount ({selectedAccount.currency})</Label>
                     <Input
                       value={amount}
                       onChange={(event) => setAmount(event.target.value)}
@@ -338,7 +339,7 @@ export default function RailSimulatorPage() {
               </>
             ) : (
               <p className="text-sm text-muted-foreground">
-                Select a sub-account first.
+                Select a funding account first.
               </p>
             )}
             {error ? <p className="text-sm text-destructive">{error}</p> : null}

@@ -5,8 +5,12 @@ import { useQuote } from "@/src/quotes/quoteService";
 import { postLedgerEntry } from "@/src/wallets/ledgerService";
 import { verifyPin } from "@/src/auth/pinService";
 import { createIncomingPayment, sendOutgoingPayment, getPaymentStatus } from "@/src/integrations/ilp/rafikiAdapter";
-import { checkAndUpdateRateLimit } from "@/src/transactions/transactionService";
+import { checkAndUpdateRateLimit, toUsdCents } from "@/src/transactions/transactionService";
 import { logFraudEvent } from "@/src/transactions/fraudService";
+import {
+	getFundingAccountById,
+	postFundingAccountTransaction,
+} from "@/src/simulators/fundingAccountService";
 import {
 	NotFoundError,
 	ValidationError,
@@ -32,8 +36,6 @@ export const sendPayment = async (input: {
 	userId: string;
 	quoteId: string;
 	pin: string;
-	receiverIdentifier: string;
-	receiverType: "phone" | "ilp_address" | "wallet_id";
 	idempotencyKey?: string;
 }): Promise<Payment> => {
 	// 1. Idempotency check
@@ -52,18 +54,27 @@ export const sendPayment = async (input: {
 
 	// 3. Lock and consume the quote
 	const quote = await useQuote(input.quoteId, input.userId);
+	const recipientType = parseRecipientType(quote.metadata.recipientType);
+	const recipientMode = parseRecipientMode(quote.metadata.recipientMode);
+	const recipientSummary = parseRecipientSummary(quote.metadata.recipientSummary);
+	const linkedFundingAccountId =
+		typeof quote.metadata.linkedFundingAccountId === "string"
+			? quote.metadata.linkedFundingAccountId
+			: null;
 
-	// 4. Get sender wallet by quote source currency
-	const { getWalletByCurrency } = await import("@/src/wallets/walletService");
-	const senderWallet = await getWalletByCurrency(input.userId, quote.sourceCurrency);
+	// 4. Resolve sender wallet from quote
+	const { getWalletById, getWalletByCurrency } = await import("@/src/wallets/walletService");
+	const senderWallet = quote.sourceWalletId
+		? await getWalletById(quote.sourceWalletId, input.userId)
+		: await getWalletByCurrency(input.userId, quote.sourceCurrency);
 	if (senderWallet.status === "frozen") throw new WalletFrozenError();
 
 	// 5. Rate-limit check
 	await checkAndUpdateRateLimit(input.userId, BigInt(quote.sourceAmount), quote.sourceCurrency);
 
-	// 6. Fraud check: large transfer
-	const usdEquivalent = quote.sourceAmount * 100; // simplified
-	if (usdEquivalent > 50000_00) { // > $500 USD-equivalent
+	// 6. Fraud check: large transfer (>$500 USD equivalent)
+	const usdCents = toUsdCents(BigInt(quote.sourceAmount), quote.sourceCurrency);
+	if (usdCents > BigInt(50000)) {
 		await logFraudEvent(input.userId, "large_transfer", {
 			quoteId: input.quoteId,
 			amount: quote.sourceAmount,
@@ -84,8 +95,8 @@ export const sendPayment = async (input: {
 			[
 				paymentId,
 				senderWallet.id,
-				input.receiverIdentifier,
-				input.receiverType,
+				resolveReceiverIdentifier(recipientSummary),
+				mapRecipientType(recipientType),
 				String(quote.sourceAmount),
 				quote.sourceCurrency,
 				input.quoteId,
@@ -102,8 +113,9 @@ export const sendPayment = async (input: {
 				reference,
 				metadata: {
 					quoteId: input.quoteId,
-					receiver: input.receiverIdentifier,
-					receiverType: input.receiverType,
+					receiver: recipientSummary,
+					receiverType: recipientType,
+					recipientMode,
 				},
 				isDebit: true,
 			},
@@ -117,25 +129,49 @@ export const sendPayment = async (input: {
 		let finalStatus: "completed" | "failed" = "failed";
 
 		try {
-			const incoming = await createIncomingPayment(
-				resolveIlpAddress(input.receiverIdentifier, input.receiverType),
-				BigInt(quote.destinationAmount),
-				quote.destinationCurrency
-			);
+			if (recipientMode === "linked_account" && linkedFundingAccountId) {
+				const linkedAccount = await getFundingAccountById(
+					input.userId,
+					linkedFundingAccountId
+				);
 
-			const outgoing = await sendOutgoingPayment({
-				quoteId: input.quoteId,
-				rafikiQuoteId: quote.rafikiQuoteId,
-				sourceAmount: BigInt(quote.sourceAmount),
-				sourceCurrency: quote.sourceCurrency,
-				destinationAmount: BigInt(quote.destinationAmount),
-				destinationCurrency: quote.destinationCurrency,
-				receiverIlpAddress: incoming.ilpAddress,
-			});
+				if (linkedAccount.currency !== quote.destinationCurrency) {
+					throw new ValidationError("Linked account currency does not match quote destination currency.");
+				}
 
-			rafikiPaymentId = outgoing.rafikiPaymentId;
-			const status = await getPaymentStatus(rafikiPaymentId);
-			finalStatus = status === "COMPLETED" ? "completed" : "failed";
+				await postFundingAccountTransaction({
+					userId: input.userId,
+					fundingAccountId: linkedAccount.id,
+					direction: "credit",
+					amount: BigInt(quote.destinationAmount),
+					reference: `${reference}-linked-credit`,
+					narration: `Transfer from Muungano ${quote.sourceCurrency} wallet`,
+					metadata: { paymentId, quoteId: input.quoteId, recipientType },
+				});
+
+				finalStatus = "completed";
+			} else {
+				const receiverIdentifier = resolveReceiverIdentifier(recipientSummary);
+				const incoming = await createIncomingPayment(
+					resolveIlpAddress(receiverIdentifier, mapRecipientType(recipientType)),
+					BigInt(quote.destinationAmount),
+					quote.destinationCurrency
+				);
+
+				const outgoing = await sendOutgoingPayment({
+					quoteId: input.quoteId,
+					rafikiQuoteId: quote.rafikiQuoteId,
+					sourceAmount: BigInt(quote.sourceAmount),
+					sourceCurrency: quote.sourceCurrency,
+					destinationAmount: BigInt(quote.destinationAmount),
+					destinationCurrency: quote.destinationCurrency,
+					receiverIlpAddress: incoming.ilpAddress,
+				});
+
+				rafikiPaymentId = outgoing.rafikiPaymentId;
+				const status = await getPaymentStatus(rafikiPaymentId);
+				finalStatus = status === "COMPLETED" ? "completed" : "failed";
+			}
 		} catch {
 			finalStatus = "failed";
 		}
@@ -200,6 +236,46 @@ function resolveIlpAddress(
 	// For phone/wallet_id — in production, resolve via routing service
 	// For mock, construct a synthetic ILP address
 	return `g.muungano.${identifier.replace(/[^a-z0-9]/gi, "")}`;
+}
+
+function parseRecipientType(value: unknown): "bank" | "mobile_money" {
+	if (value === "bank" || value === "mobile_money") {
+		return value;
+	}
+	throw new ValidationError("Quote recipient type is missing or invalid.");
+}
+
+function parseRecipientMode(value: unknown): "manual" | "linked_account" {
+	if (value === "manual" || value === "linked_account") {
+		return value;
+	}
+	throw new ValidationError("Quote recipient mode is missing or invalid.");
+}
+
+function parseRecipientSummary(value: unknown): Record<string, string> {
+	if (value && typeof value === "object") {
+		const entries = Object.entries(value as Record<string, unknown>).map(([key, entryValue]) => [
+			key,
+			String(entryValue),
+		]);
+		return Object.fromEntries(entries);
+	}
+	throw new ValidationError("Quote recipient details are missing.");
+}
+
+function resolveReceiverIdentifier(summary: Record<string, string>): string {
+	return (
+		summary.accountIdentifier ??
+		summary.recipientNumber ??
+		summary.recipientAccount ??
+		summary.accountNumber ??
+		summary.bankName ??
+		"unknown-recipient"
+	);
+}
+
+function mapRecipientType(type: "bank" | "mobile_money"): "phone" | "wallet_id" {
+	return type === "mobile_money" ? "phone" : "wallet_id";
 }
 
 type PaymentRow = {

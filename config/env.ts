@@ -16,7 +16,7 @@ export const env = {
 	// FX rates (mock — replace with live feed in production)
 	kes_usd_rate: asNumber(process.env.KES_USD_RATE, 0.00775),  // 1 KES ≈ 0.00775 USD
 	mwk_usd_rate: asNumber(process.env.MWK_USD_RATE, 0.00058),  // 1 MWK ≈ 0.00058 USD
-	mwk_kes_rate: asNumber(process.env.MWK_KES_RATE, 0.013),    // 1 MWK ≈ 0.013 KES (legacy)
+	mwk_kes_rate: asNumber(process.env.MWK_KES_RATE, 0.074),    // 1 MWK ≈ 0.074 KES (legacy)
 	requestTimeoutMs: asNumber(process.env.REQUEST_TIMEOUT_MS, 8_000),
 	// Rafiki / ILP
 	rafikiMockMode: asBoolean(process.env.RAFIKI_MOCK_MODE, true),
@@ -27,6 +27,7 @@ export const env = {
 	rafikiAuthToken: process.env.RAFIKI_AUTH_TOKEN,
 	rafikiClientId: process.env.RAFIKI_CLIENT_ID,
 	rafikiClientSecret: process.env.RAFIKI_CLIENT_SECRET,
+	ilpDomain: process.env.ILP_DOMAIN ?? "g.muungano",
 	databaseUrl: process.env.DATABASE_URL ?? "postgresql://neondb_owner:npg_zQmh0XWnx8YD@ep-dark-voice-abgzt26c-pooler.eu-west-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require",
 	redisUrl: process.env.REDIS_URL,
 	// Simulator channel URLs (repurposed — deposit/withdrawal channels)

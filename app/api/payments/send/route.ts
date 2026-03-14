@@ -24,8 +24,6 @@ export async function POST(request: Request) {
 			userId: session.userId,
 			quoteId: data.quoteId,
 			pin: data.pin,
-			receiverIdentifier: data.receiverIdentifier,
-			receiverType: data.receiverType,
 			idempotencyKey: data.idempotencyKey,
 		});
 

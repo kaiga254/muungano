@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { resolveSession } from "@/src/auth/authService";
-import { submitKyc, getKycByUserId } from "@/src/kyc/kycService";
+import { submitKyc, verifyKyc, getKycByUserId } from "@/src/kyc/kycService";
 import { KycSubmitSchema } from "@/src/shared/validators";
 import { toHttpError } from "@/src/shared/errors";
 import { env } from "@/config/env";
@@ -20,14 +20,17 @@ export async function POST(request: Request) {
 		const body = await request.json();
 		const data = KycSubmitSchema.parse(body);
 
-		const profile = await submitKyc({
+		await submitKyc({
 			userId: session.userId,
 			fullName: data.fullName,
 			nationalId: data.nationalId,
 			dateOfBirth: data.dateOfBirth,
 			country: data.country,
 		});
-		return NextResponse.json({ message: "KYC submitted.", profile }, { status: 201 });
+
+		// MVP: auto-approve immediately after submission
+		const profile = await verifyKyc(session.userId);
+		return NextResponse.json({ message: "KYC submitted and verified.", profile }, { status: 201 });
 	} catch (error) {
 		if (error instanceof ZodError) {
 			return NextResponse.json(

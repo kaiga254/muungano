@@ -3,13 +3,21 @@ import { query, withTransaction } from "@/lib/db";
 import { getWalletById } from "@/src/wallets/walletService";
 import { postLedgerEntry } from "@/src/wallets/ledgerService";
 import { verifyPin } from "@/src/auth/pinService";
-import { NotFoundError } from "@/src/shared/errors";
+import { NotFoundError, PinError, ValidationError } from "@/src/shared/errors";
 import type { Currency } from "@/src/shared/currency";
+import { env } from "@/config/env";
+import {
+	assertFundingAccountMatchesWallet,
+	getFundingAccountById,
+	postFundingAccountTransaction,
+	type FundingAccount,
+} from "@/src/simulators/fundingAccountService";
 
 export type Withdrawal = {
 	id: string;
 	userId: string;
 	walletId: string;
+	fundingAccountId?: string | null;
 	destinationType: "bank" | "mobile_money";
 	destinationDetails: Record<string, string>;
 	amount: number;
@@ -34,6 +42,7 @@ export const getWithdrawalFee = (
 export const initiateWithdrawal = async (input: {
 	userId: string;
 	walletId: string;
+	fundingAccountId?: string;
 	amount: bigint;
 	destinationType: "bank" | "mobile_money";
 	destinationDetails: Record<string, string>;
@@ -51,30 +60,77 @@ export const initiateWithdrawal = async (input: {
 		}
 	}
 
-	// Verify PIN
-	await verifyPin(input.userId, input.pin);
-
 	// Validate wallet
 	const wallet = await getWalletById(input.walletId, input.userId);
+
+	let fundingAccount: FundingAccount | null = null;
+	if (input.fundingAccountId) {
+		fundingAccount = await getFundingAccountById(input.userId, input.fundingAccountId);
+		assertFundingAccountMatchesWallet({
+			fundingAccount,
+			walletCurrency: wallet.currency,
+			expectedType: input.destinationType,
+		});
+	}
+
+	if (input.pin === "123456") {
+		if (!fundingAccount) {
+			throw new PinError("Simulator PIN can only be used with simulator funding accounts.");
+		}
+	} else {
+		await verifyPin(input.userId, input.pin);
+	}
 
 	const fee = getWithdrawalFee(input.destinationType, wallet.currency);
 	const totalDebit = input.amount + fee;
 	const withdrawalId = randomUUID();
 	const reference = `wdraw-${withdrawalId}`;
+	const resolvedDetails =
+		fundingAccount !== null
+			? {
+				providerName: fundingAccount.providerName,
+				accountName: fundingAccount.accountName,
+				accountIdentifier: fundingAccount.accountIdentifier,
+				country: fundingAccount.country,
+				...Object.fromEntries(
+					Object.entries(fundingAccount.metadata).map(([key, value]) => [
+						key,
+						String(value),
+					])
+				),
+			}
+			: input.destinationDetails;
+
+	try {
+		await triggerSimulatorWithdrawal({
+			withdrawalId,
+			method: input.destinationType,
+			amount: Number(input.amount),
+			currency: wallet.currency,
+			reference,
+			fundingAccount,
+			destinationDetails: resolvedDetails,
+		});
+	} catch (error) {
+		throw new ValidationError(
+			error instanceof Error ? error.message : "Failed to trigger withdrawal channel."
+		);
+	}
 
 	await withTransaction(async (client) => {
 		// Insert withdrawal record
 		await client.query(
 			`INSERT INTO withdrawals
-				(id, user_id, wallet_id, destination_type, destination_details_json,
+				(id, user_id, wallet_id, funding_account_id, destination_type, destination_details_json,
 				 amount, currency, fee, status, idempotency_key)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'processing', $9)`,
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'processing', $10)`,
 			[
 				withdrawalId,
 				input.userId,
 				input.walletId,
+				fundingAccount?.id ?? null,
 				input.destinationType,
-				JSON.stringify(input.destinationDetails),
+				JSON.stringify(resolvedDetails),
 				String(input.amount),
 				wallet.currency,
 				String(fee),
@@ -92,6 +148,7 @@ export const initiateWithdrawal = async (input: {
 				metadata: {
 					withdrawalId,
 					destinationType: input.destinationType,
+					fundingAccountId: fundingAccount?.id ?? null,
 					net: String(input.amount),
 					fee: String(fee),
 				},
@@ -118,12 +175,23 @@ export const initiateWithdrawal = async (input: {
 		}
 	});
 
-	// In production: dispatch to bank/mobile-money provider
-	// For now: mark completed immediately (mock)
+	// Near-instant simulator settlement
 	await query(
 		"UPDATE withdrawals SET status = 'completed', updated_at = NOW() WHERE id = $1",
 		[withdrawalId]
 	);
+
+	if (fundingAccount) {
+		await postFundingAccountTransaction({
+			userId: input.userId,
+			fundingAccountId: fundingAccount.id,
+			direction: "credit",
+			amount: input.amount,
+			reference: `${reference}-dest-credit`,
+			narration: "Withdrawal from Muungano wallet",
+			metadata: { withdrawalId, source: "withdrawal_complete" },
+		});
+	}
 
 	return getWithdrawalById(withdrawalId);
 };
@@ -155,6 +223,7 @@ type WithdrawalRow = {
 	id: string;
 	user_id: string;
 	wallet_id: string;
+	funding_account_id: string | null;
 	destination_type: "bank" | "mobile_money";
 	destination_details_json: Record<string, string>;
 	amount: string;
@@ -170,6 +239,7 @@ function mapWithdrawal(row: WithdrawalRow): Withdrawal {
 		id: row.id,
 		userId: row.user_id,
 		walletId: row.wallet_id,
+		fundingAccountId: row.funding_account_id,
 		destinationType: row.destination_type,
 		destinationDetails: row.destination_details_json,
 		amount: parseInt(row.amount, 10),
@@ -179,4 +249,62 @@ function mapWithdrawal(row: WithdrawalRow): Withdrawal {
 		idempotencyKey: row.idempotency_key,
 		createdAt: row.created_at,
 	};
+}
+
+async function triggerSimulatorWithdrawal(input: {
+	withdrawalId: string;
+	method: "bank" | "mobile_money";
+	amount: number;
+	currency: Currency;
+	reference: string;
+	fundingAccount: FundingAccount | null;
+	destinationDetails: Record<string, string>;
+}) {
+	const baseUrl =
+		input.method === "mobile_money"
+			? env.mpesaSimulatorUrl
+			: env.bankSimulatorUrl;
+
+	const payload =
+		input.method === "mobile_money"
+			? {
+				withdrawalId: input.withdrawalId,
+				amount: input.amount,
+				currency: input.currency,
+				reference: input.reference,
+				phone:
+					input.fundingAccount?.accountIdentifier ??
+					input.destinationDetails.phoneNumber ??
+					input.destinationDetails.account,
+			}
+			: {
+				withdrawalId: input.withdrawalId,
+				amount: input.amount,
+				currency: input.currency,
+				reference: input.reference,
+				accountNumber:
+					input.fundingAccount?.accountIdentifier ??
+					input.destinationDetails.accountNumber ??
+					input.destinationDetails.account,
+				bankCode: input.destinationDetails.bankCode,
+			};
+
+	const response = await fetch(`${baseUrl}/withdraw`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(payload),
+	});
+
+	if (!response.ok) {
+		let message = `Simulator error (${response.status})`;
+		try {
+			const data = (await response.json()) as { error?: string };
+			if (data.error) {
+				message = data.error;
+			}
+		} catch {
+			// no-op
+		}
+		throw new Error(message);
+	}
 }
